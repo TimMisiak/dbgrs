@@ -4,7 +4,7 @@ use windows_sys::{
     Win32::System::{Diagnostics::Debug::*, Threading::*, WindowsProgramming::INFINITE},
 };
 
-use std::ptr;
+use std::ptr::null;
 
 // For now, we only accept the command line of the process to launch, so we'll just return that for now. Later, we can parse additional
 // command line options such as attaching to processes.
@@ -81,14 +81,14 @@ fn main() {
         si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
         let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
         let ret = CreateProcessW(
-            ptr::null(),
+            null(),
             target_command_line,
-            ptr::null(),
-            ptr::null(),
+            null(),
+            null(),
             FALSE,
             DEBUG_ONLY_THIS_PROCESS | CREATE_NEW_CONSOLE,
-            ptr::null(),
-            ptr::null(),
+            null(),
+            null(),
             &mut si.StartupInfo,
             &mut pi,
         );
