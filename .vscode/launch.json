@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["cmd.exe", "/c", "echo hello"],
+            "args": ["cmd.exe", "/k", "echo hello"],
             "cwd": "${workspaceFolder}"
         },
         {

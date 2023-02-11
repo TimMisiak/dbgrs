@@ -6,41 +6,51 @@ use windows_sys::{
 
 use std::ptr::null;
 
+use std::ffi::OsString;
+use std::os::windows::prelude::*;
+
+unsafe fn wcslen(ptr: *const u16) -> isize {
+    let mut len = 0;
+    while *ptr.offset(len) != 0 {
+        len += 1;
+    }
+    len
+}
+
 // For now, we only accept the command line of the process to launch, so we'll just return that for now. Later, we can parse additional
 // command line options such as attaching to processes.
-fn parse_command_line() -> *mut u16 {
-    unsafe {
+// Q: Why not just convert to UTF8?
+// A: There can be cases where this is lossy, and we want to make sure we can debug as close as possible to normal execution.
+fn parse_command_line() -> Result<OsString, &'static str> {
+    let cmd_line = unsafe {
         // As far as I can tell, standard rust command line argument parsing won't preserve spaces. So we'll call
         // the win32 api directly and then parse it out.
-        let mut p = GetCommandLineW();
+        let p = GetCommandLineW();
+        let len = wcslen(p);
+        std::slice::from_raw_parts_mut(p, len.try_into().unwrap()).to_vec()
+    };
 
-        // The command line will start with the path of the currently running executable, which may or may not be contained in quotes.
-        // We'll skip that first
+    let mut cmd_line_iter = cmd_line.into_iter().peekable();
 
-        if *p == '"' as u16 {
-            // If we start with a quote like "foo/foo.exe", we should keep going until we get to the end of the quote
-            p = p.offset(1);
-            while (*p != 0) && (*p != '"' as u16) {
-                p = p.offset(1);
-            }
+    let first = cmd_line_iter.next().ok_or("Command line was empty")?;
 
-            if *p == '"' as u16 {
-                p = p.offset(1);
-            }
-        } else {
-            // Skip anything that isn't a space
-            while (*p != 0) && (*p != ' ' as u16) {
-                p = p.offset(1);
-            }
+    // If the first character is a quote, we need to find a matching end quote. Otherwise, the first space.
+    let end_char = (if first == '"' as u16 { '"' } else { ' ' }) as u16;
+
+    loop {
+        let next = cmd_line_iter.next().ok_or("No arguments found")?;
+        if next == end_char {
+            break;
         }
-
-        // Skip any leading whitespace
-        while *p == ' ' as u16 {
-            p = p.offset(1);
-        }
-
-        p
     }
+
+    // Now we need to skip any whitespace
+    let cmd_line_iter = cmd_line_iter.skip_while(|x| x == &(' ' as u16));
+
+    let mut args: Vec<u16> = cmd_line_iter.collect();
+    args.push(0);
+
+    Ok(OsString::from_wide(&args))
 }
 
 unsafe fn main_debugger_loop() {
@@ -75,14 +85,22 @@ unsafe fn main_debugger_loop() {
 
 fn main() {
     unsafe {
-        let target_command_line = parse_command_line();
+        let target_command_line = parse_command_line().unwrap();
+
+        println!(
+            "Command line was: '{str}'",
+            str = target_command_line.to_str().unwrap()
+        );
+
+        // CreateProcessW needs a mutable buffer
+        let mut command_line_buffer: Vec<u16> = target_command_line.encode_wide().collect();
 
         let mut si: STARTUPINFOEXW = std::mem::zeroed();
         si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
         let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
         let ret = CreateProcessW(
             null(),
-            target_command_line,
+            command_line_buffer.as_mut_ptr(),
             null(),
             null(),
             FALSE,
