@@ -9,6 +9,11 @@ use std::ptr::null;
 use std::ffi::OsString;
 use std::os::windows::prelude::*;
 
+fn show_usage(error_message: &str) {
+    println!("Error: {msg}", msg = error_message);
+    println!("Usage: DbgRs <Command Line>");
+}
+
 unsafe fn wcslen(ptr: *const u16) -> isize {
     let mut len = 0;
     while *ptr.offset(len) != 0 {
@@ -88,7 +93,15 @@ fn main_debugger_loop() {
 }
 
 fn main() {
-    let target_command_line = parse_command_line().unwrap();
+    let target_command_line_result = parse_command_line();
+
+    let target_command_line = match target_command_line_result {
+        Ok(i) => i,
+        Err(msg) => {
+            show_usage(msg);
+            return;
+        }
+    };
 
     println!(
         "Command line was: '{str}'",
