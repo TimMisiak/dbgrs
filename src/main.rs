@@ -53,10 +53,12 @@ fn parse_command_line() -> Result<OsString, &'static str> {
     Ok(OsString::from_wide(&args))
 }
 
-unsafe fn main_debugger_loop() {
+fn main_debugger_loop() {
     loop {
-        let mut debug_event: DEBUG_EVENT = std::mem::zeroed();
-        WaitForDebugEventEx(&mut debug_event, INFINITE);
+        let mut debug_event: DEBUG_EVENT = unsafe { std::mem::zeroed() };
+        unsafe {
+            WaitForDebugEventEx(&mut debug_event, INFINITE);
+        }
 
         match debug_event.dwDebugEventCode {
             EXCEPTION_DEBUG_EVENT => println!("Exception"),
@@ -75,30 +77,32 @@ unsafe fn main_debugger_loop() {
             break;
         }
 
-        ContinueDebugEvent(
-            debug_event.dwProcessId,
-            debug_event.dwThreadId,
-            DBG_EXCEPTION_NOT_HANDLED,
-        );
+        unsafe {
+            ContinueDebugEvent(
+                debug_event.dwProcessId,
+                debug_event.dwThreadId,
+                DBG_EXCEPTION_NOT_HANDLED,
+            );
+        }
     }
 }
 
 fn main() {
-    unsafe {
-        let target_command_line = parse_command_line().unwrap();
+    let target_command_line = parse_command_line().unwrap();
 
-        println!(
-            "Command line was: '{str}'",
-            str = target_command_line.to_str().unwrap()
-        );
+    println!(
+        "Command line was: '{str}'",
+        str = target_command_line.to_str().unwrap()
+    );
 
-        // CreateProcessW needs a mutable buffer
-        let mut command_line_buffer: Vec<u16> = target_command_line.encode_wide().collect();
+    // CreateProcessW needs a mutable buffer
+    let mut command_line_buffer: Vec<u16> = target_command_line.encode_wide().collect();
 
-        let mut si: STARTUPINFOEXW = std::mem::zeroed();
-        si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
-        let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
-        let ret = CreateProcessW(
+    let mut si: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
+    si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
+    let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+    let ret = unsafe {
+        CreateProcessW(
             null(),
             command_line_buffer.as_mut_ptr(),
             null(),
@@ -109,17 +113,17 @@ fn main() {
             null(),
             &mut si.StartupInfo,
             &mut pi,
-        );
+        )
+    };
 
-        if ret == 0 {
-            panic!("CreateProcessW failed");
-        }
-
-        CloseHandle(pi.hThread);
-
-        // Later, we'll need to pass in a process handle.
-        main_debugger_loop();
-
-        CloseHandle(pi.hProcess);
+    if ret == 0 {
+        panic!("CreateProcessW failed");
     }
+
+    unsafe { CloseHandle(pi.hThread) };
+
+    // Later, we'll need to pass in a process handle.
+    main_debugger_loop();
+
+    unsafe { CloseHandle(pi.hProcess) };
 }
