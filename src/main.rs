@@ -6,17 +6,14 @@ use windows_sys::{
 
 use std::ptr::null;
 
-use std::ffi::OsString;
-use std::os::windows::prelude::*;
-
 fn show_usage(error_message: &str) {
     println!("Error: {msg}", msg = error_message);
     println!("Usage: DbgRs <Command Line>");
 }
 
-unsafe fn wcslen(ptr: *const u16) -> isize {
+unsafe fn wcslen(ptr: *const u16) -> usize {
     let mut len = 0;
-    while *ptr.offset(len) != 0 {
+    while *ptr.add(len) != 0 {
         len += 1;
     }
     len
@@ -26,16 +23,16 @@ unsafe fn wcslen(ptr: *const u16) -> isize {
 // command line options such as attaching to processes.
 // Q: Why not just convert to UTF8?
 // A: There can be cases where this is lossy, and we want to make sure we can debug as close as possible to normal execution.
-fn parse_command_line() -> Result<OsString, &'static str> {
+fn parse_command_line() -> Result<Vec<u16>, &'static str> {
     let cmd_line = unsafe {
         // As far as I can tell, standard rust command line argument parsing won't preserve spaces. So we'll call
         // the win32 api directly and then parse it out.
         let p = GetCommandLineW();
         let len = wcslen(p);
-        std::slice::from_raw_parts_mut(p, len.try_into().unwrap()).to_vec()
+        std::slice::from_raw_parts(p, len + 1)
     };
 
-    let mut cmd_line_iter = cmd_line.into_iter().peekable();
+    let mut cmd_line_iter = cmd_line.iter().copied();
 
     let first = cmd_line_iter.next().ok_or("Command line was empty")?;
 
@@ -52,10 +49,7 @@ fn parse_command_line() -> Result<OsString, &'static str> {
     // Now we need to skip any whitespace
     let cmd_line_iter = cmd_line_iter.skip_while(|x| x == &(' ' as u16));
 
-    let mut args: Vec<u16> = cmd_line_iter.collect();
-    args.push(0);
-
-    Ok(OsString::from_wide(&args))
+    Ok(cmd_line_iter.collect())
 }
 
 fn main_debugger_loop() {
@@ -95,7 +89,7 @@ fn main_debugger_loop() {
 fn main() {
     let target_command_line_result = parse_command_line();
 
-    let target_command_line = match target_command_line_result {
+    let mut command_line_buffer = match target_command_line_result {
         Ok(i) => i,
         Err(msg) => {
             show_usage(msg);
@@ -105,11 +99,8 @@ fn main() {
 
     println!(
         "Command line was: '{str}'",
-        str = target_command_line.to_str().unwrap()
+        str = String::from_utf16_lossy(&command_line_buffer)
     );
-
-    // CreateProcessW needs a mutable buffer
-    let mut command_line_buffer: Vec<u16> = target_command_line.encode_wide().collect();
 
     let mut si: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
     si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
