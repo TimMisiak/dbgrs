@@ -94,6 +94,8 @@ fn main_debugger_loop(_process: HANDLE) {
                 if expect_step_exception {
                     expect_step_exception = false;
                     continue_status = DBG_EXCEPTION_HANDLED;
+                } else {
+                    println!("Exception");
                 }
             }
             CREATE_THREAD_DEBUG_EVENT => println!("CreateThread"),
