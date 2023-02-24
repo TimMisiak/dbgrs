@@ -6,6 +6,32 @@ use windows_sys::{
 
 use std::ptr::null;
 
+use crate::command::grammar::Expr;
+
+mod command;
+
+// Not sure why these are missing from windows_sys, but the definitions are in winnt.h
+const CONTEXT_AMD64: u32 = 0x00100000;
+const CONTEXT_CONTROL: u32 = CONTEXT_AMD64 | 0x00000001;
+const CONTEXT_INTEGER: u32 = CONTEXT_AMD64 | 0x00000002;
+const CONTEXT_SEGMENTS: u32 = CONTEXT_AMD64 | 0x00000004;
+const CONTEXT_FLOATING_POINT: u32 = CONTEXT_AMD64 | 0x00000008;
+const CONTEXT_DEBUG_REGISTERS: u32 = CONTEXT_AMD64 | 0x00000010;
+#[allow(dead_code)]
+const CONTEXT_FULL: u32 = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_FLOATING_POINT;
+const CONTEXT_ALL: u32 = CONTEXT_CONTROL
+    | CONTEXT_INTEGER
+    | CONTEXT_SEGMENTS
+    | CONTEXT_FLOATING_POINT
+    | CONTEXT_DEBUG_REGISTERS;
+
+const TRAP_FLAG: u32 = 1 << 8;
+
+#[repr(align(16))]
+struct AlignedContext {
+    context: CONTEXT,
+}
+
 fn show_usage(error_message: &str) {
     println!("Error: {msg}", msg = error_message);
     println!("Usage: DbgRs <Command Line>");
@@ -52,15 +78,24 @@ fn parse_command_line() -> Result<Vec<u16>, &'static str> {
     Ok(cmd_line_iter.collect())
 }
 
-fn main_debugger_loop() {
+fn main_debugger_loop(_process: HANDLE) {
+    let mut expect_step_exception = false;
     loop {
         let mut debug_event: DEBUG_EVENT = unsafe { std::mem::zeroed() };
         unsafe {
             WaitForDebugEventEx(&mut debug_event, INFINITE);
         }
 
+        let mut continue_status = DBG_EXCEPTION_NOT_HANDLED;
+
         match debug_event.dwDebugEventCode {
-            EXCEPTION_DEBUG_EVENT => println!("Exception"),
+            EXCEPTION_DEBUG_EVENT => {
+                // TODO: Check if this is a step exception
+                if expect_step_exception {
+                    expect_step_exception = false;
+                    continue_status = DBG_EXCEPTION_HANDLED;
+                }
+            }
             CREATE_THREAD_DEBUG_EVENT => println!("CreateThread"),
             CREATE_PROCESS_DEBUG_EVENT => println!("CreateProcess"),
             EXIT_THREAD_DEBUG_EVENT => println!("ExitThread"),
@@ -72,6 +107,43 @@ fn main_debugger_loop() {
             _ => panic!("Unexpected debug event"),
         }
 
+        let thread: HANDLE = unsafe {
+            OpenThread(
+                THREAD_GET_CONTEXT | THREAD_SET_CONTEXT,
+                FALSE,
+                debug_event.dwThreadId,
+            )
+        };
+        let mut ctx: AlignedContext = unsafe { std::mem::zeroed() };
+        ctx.context.ContextFlags = CONTEXT_ALL;
+        let ret = unsafe { GetThreadContext(thread, &mut ctx.context) };
+
+        if ret == 0 {
+            panic!("GetThreadContext failed");
+        }
+
+        println!("{:#018x}", ctx.context.Rip);
+
+        let cmd = command::read_command();
+
+        match cmd {
+            Expr::StepInto(_) => {
+                ctx.context.EFlags |= TRAP_FLAG;
+                let ret = unsafe { SetThreadContext(thread, &ctx.context) };
+                if ret == 0 {
+                    panic!("SetThreadContext failed");
+                }
+                expect_step_exception = true;
+            }
+            Expr::Go(_) => {
+                // Nothing needed, we'll continue execution when we call ContinueDebugEvent
+            }
+            Expr::Quit(_) => {
+                // The process will be terminated since we didn't detach.
+                return;
+            }
+        }
+
         if debug_event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT {
             break;
         }
@@ -80,7 +152,7 @@ fn main_debugger_loop() {
             ContinueDebugEvent(
                 debug_event.dwProcessId,
                 debug_event.dwThreadId,
-                DBG_EXCEPTION_NOT_HANDLED,
+                continue_status,
             );
         }
     }
@@ -127,7 +199,7 @@ fn main() {
     unsafe { CloseHandle(pi.hThread) };
 
     // Later, we'll need to pass in a process handle.
-    main_debugger_loop();
+    main_debugger_loop(pi.hProcess);
 
     unsafe { CloseHandle(pi.hProcess) };
 }
