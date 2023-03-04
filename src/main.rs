@@ -33,6 +33,22 @@ struct AlignedContext {
     context: CONTEXT,
 }
 
+struct AutoClosedHandle(HANDLE);
+
+impl Drop for AutoClosedHandle {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+impl AutoClosedHandle {
+    pub fn handle(&self) -> HANDLE {
+        self.0
+    }
+}
+
 fn show_usage(error_message: &str) {
     println!("Error: {msg}", msg = error_message);
     println!("Usage: DbgRs <Command Line>");
@@ -117,43 +133,48 @@ fn main_debugger_loop(_process: HANDLE) {
             _ => panic!("Unexpected debug event"),
         }
 
-        let thread: HANDLE = unsafe {
+        let thread = AutoClosedHandle(unsafe {
             OpenThread(
                 THREAD_GET_CONTEXT | THREAD_SET_CONTEXT,
                 FALSE,
                 debug_event.dwThreadId,
             )
-        };
+        });
         let mut ctx: AlignedContext = unsafe { std::mem::zeroed() };
         ctx.context.ContextFlags = CONTEXT_ALL;
-        let ret = unsafe { GetThreadContext(thread, &mut ctx.context) };
+        let ret = unsafe { GetThreadContext(thread.handle(), &mut ctx.context) };
 
         if ret == 0 {
             panic!("GetThreadContext failed");
         }
 
-        println!("[{:X}] {:#018x}", debug_event.dwThreadId, ctx.context.Rip);
+        let mut continue_execution = false;
 
-        let cmd = command::read_command();
+        while !continue_execution {
+            println!("[{:X}] {:#018x}", debug_event.dwThreadId, ctx.context.Rip);
 
-        match cmd {
-            Expr::StepInto(_) => {
-                ctx.context.EFlags |= TRAP_FLAG;
-                let ret = unsafe { SetThreadContext(thread, &ctx.context) };
-                if ret == 0 {
-                    panic!("SetThreadContext failed");
+            let cmd = command::read_command();
+
+            match cmd {
+                Expr::StepInto(_) => {
+                    ctx.context.EFlags |= TRAP_FLAG;
+                    let ret = unsafe { SetThreadContext(thread.handle(), &ctx.context) };
+                    if ret == 0 {
+                        panic!("SetThreadContext failed");
+                    }
+                    expect_step_exception = true;
+                    continue_execution = true;
                 }
-                expect_step_exception = true;
-            }
-            Expr::Go(_) => {
-                // Nothing needed, we'll continue execution when we call ContinueDebugEvent
-            }
-            Expr::DisplayRegisters(_) => {
-                registers::display_all(ctx.context);
-            }
-            Expr::Quit(_) => {
-                // The process will be terminated since we didn't detach.
-                return;
+                Expr::Go(_) => {
+                    continue_execution = true;
+                }
+                Expr::DisplayRegisters(_) => {
+                    registers::display_all(ctx.context);
+                }
+                Expr::Quit(_) => {
+                    // The process will be terminated since we didn't detach.
+                    return;
+                }
             }
         }
 
