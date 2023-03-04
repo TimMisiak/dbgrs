@@ -10,8 +10,8 @@ pub mod grammar {
     pub enum Expr {
         StepInto(#[rust_sitter::leaf(text = "t")] ()),
         Go(#[rust_sitter::leaf(text = "g")] ()),
-        Quit(#[rust_sitter::leaf(text = "q")] ()),
         DisplayRegisters(#[rust_sitter::leaf(text = "r")] ()),
+        Quit(#[rust_sitter::leaf(text = "q")] ()),
     }
 }
 
