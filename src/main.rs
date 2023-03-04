@@ -9,6 +9,7 @@ use std::ptr::null;
 use crate::command::grammar::Expr;
 
 mod command;
+mod registers;
 
 // Not sure why these are missing from windows_sys, but the definitions are in winnt.h
 const CONTEXT_AMD64: u32 = 0x00100000;
@@ -146,6 +147,9 @@ fn main_debugger_loop(_process: HANDLE) {
             }
             Expr::Go(_) => {
                 // Nothing needed, we'll continue execution when we call ContinueDebugEvent
+            }
+            Expr::DisplayRegisters(_) => {
+                registers::display_all(ctx.context);
             }
             Expr::Quit(_) => {
                 // The process will be terminated since we didn't detach.

@@ -11,6 +11,7 @@ pub mod grammar {
         StepInto(#[rust_sitter::leaf(text = "t")] ()),
         Go(#[rust_sitter::leaf(text = "g")] ()),
         Quit(#[rust_sitter::leaf(text = "q")] ()),
+        DisplayRegisters(#[rust_sitter::leaf(text = "r")] ()),
     }
 }
 
