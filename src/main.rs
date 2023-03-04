@@ -86,16 +86,23 @@ fn main_debugger_loop(_process: HANDLE) {
             WaitForDebugEventEx(&mut debug_event, INFINITE);
         }
 
-        let mut continue_status = DBG_EXCEPTION_NOT_HANDLED;
+        let mut continue_status = DBG_CONTINUE;
 
         match debug_event.dwDebugEventCode {
             EXCEPTION_DEBUG_EVENT => {
-                // TODO: Check if this is a step exception
+                let code = unsafe { debug_event.u.Exception.ExceptionRecord.ExceptionCode };
+                let first_chance = unsafe { debug_event.u.Exception.dwFirstChance };
+                let chance_string = if first_chance == 0 {
+                    "second chance"
+                } else {
+                    "first chance"
+                };
+                println!("Exception code {:x} ({})", code, chance_string);
                 if expect_step_exception {
                     expect_step_exception = false;
-                    continue_status = DBG_EXCEPTION_HANDLED;
+                    continue_status = DBG_CONTINUE;
                 } else {
-                    println!("Exception");
+                    continue_status = DBG_EXCEPTION_NOT_HANDLED;
                 }
             }
             CREATE_THREAD_DEBUG_EVENT => println!("CreateThread"),
@@ -124,7 +131,7 @@ fn main_debugger_loop(_process: HANDLE) {
             panic!("GetThreadContext failed");
         }
 
-        println!("{:#018x}", ctx.context.Rip);
+        println!("[{:X}] {:#018x}", debug_event.dwThreadId, ctx.context.Rip);
 
         let cmd = command::read_command();
 
