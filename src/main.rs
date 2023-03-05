@@ -114,11 +114,12 @@ fn main_debugger_loop(_process: HANDLE) {
                 } else {
                     "first chance"
                 };
-                println!("Exception code {:x} ({})", code, chance_string);
-                if expect_step_exception {
+
+                if expect_step_exception && code == EXCEPTION_SINGLE_STEP {
                     expect_step_exception = false;
                     continue_status = DBG_CONTINUE;
                 } else {
+                    println!("Exception code {:x} ({})", code, chance_string);
                     continue_status = DBG_EXCEPTION_NOT_HANDLED;
                 }
             }
