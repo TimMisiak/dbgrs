@@ -172,6 +172,9 @@ fn main_debugger_loop(_process: HANDLE) {
                 CommandExpr::DisplayRegisters(_) => {
                     registers::display_all(ctx.context);
                 }
+                CommandExpr::DisplayBytes(_, _) => {
+                    println!("TODO: display bytes");
+                }
                 CommandExpr::Quit(_) => {
                     // The process will be terminated since we didn't detach.
                     return;
