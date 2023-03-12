@@ -4,6 +4,7 @@ use windows_sys::{
     Win32::System::{Diagnostics::Debug::*, Threading::*, WindowsProgramming::INFINITE},
 };
 
+use core::ffi::c_void;
 use std::ptr::null;
 
 use crate::command::grammar::CommandExpr;
@@ -96,7 +97,7 @@ fn parse_command_line() -> Result<Vec<u16>, &'static str> {
     Ok(cmd_line_iter.collect())
 }
 
-fn main_debugger_loop(_process: HANDLE) {
+fn main_debugger_loop(process: HANDLE) {
     let mut expect_step_exception = false;
     loop {
         let mut debug_event: DEBUG_EVENT = unsafe { std::mem::zeroed() };
@@ -173,8 +174,27 @@ fn main_debugger_loop(_process: HANDLE) {
                 CommandExpr::DisplayRegisters(_) => {
                     registers::display_all(ctx.context);
                 }
-                CommandExpr::DisplayBytes(_, _) => {
-                    println!("TODO: display bytes");
+                CommandExpr::DisplayBytes(_, expr) => {
+                    let addr = eval::evaluate_expression(*expr);
+                    let mut buffer: [u8; 16] = [0; 16];
+                    let mut bytes_read: usize = 0;
+                    let result = unsafe {
+                        ReadProcessMemory(
+                            process,
+                            addr as *const c_void,
+                            buffer.as_mut_ptr() as *mut c_void,
+                            buffer.len(),
+                            &mut bytes_read as *mut usize,
+                        )
+                    };
+                    if result == 0 {
+                        println!("ReadProcessMemory failed");
+                    } else {
+                        for n in 0..bytes_read {
+                            print!("{:02X} ", buffer[n]);
+                        }
+                        println!();
+                    }
                 }
                 CommandExpr::Evaluate(_, expr) => {
                     let val = eval::evaluate_expression(*expr);
