@@ -7,7 +7,7 @@ use rust_sitter::errors::{ParseError, ParseErrorReason};
 #[rust_sitter::grammar("command")]
 pub mod grammar {
     #[rust_sitter::language]
-    pub enum Expr {
+    pub enum CommandExpr {
         StepInto(#[rust_sitter::leaf(text = "t")] ()),
         Go(#[rust_sitter::leaf(text = "g")] ()),
         DisplayRegisters(#[rust_sitter::leaf(text = "r")] ()),
@@ -65,7 +65,7 @@ fn convert_parse_error_to_diagnostics(
     }
 }
 
-pub fn read_command() -> grammar::Expr {
+pub fn read_command() -> grammar::CommandExpr {
     let stdin = std::io::stdin();
     loop {
         print!("> ");

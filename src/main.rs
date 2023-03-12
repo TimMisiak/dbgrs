@@ -6,7 +6,7 @@ use windows_sys::{
 
 use std::ptr::null;
 
-use crate::command::grammar::Expr;
+use crate::command::grammar::CommandExpr;
 
 mod command;
 mod registers;
@@ -157,7 +157,7 @@ fn main_debugger_loop(_process: HANDLE) {
             let cmd = command::read_command();
 
             match cmd {
-                Expr::StepInto(_) => {
+                CommandExpr::StepInto(_) => {
                     ctx.context.EFlags |= TRAP_FLAG;
                     let ret = unsafe { SetThreadContext(thread.handle(), &ctx.context) };
                     if ret == 0 {
@@ -166,13 +166,13 @@ fn main_debugger_loop(_process: HANDLE) {
                     expect_step_exception = true;
                     continue_execution = true;
                 }
-                Expr::Go(_) => {
+                CommandExpr::Go(_) => {
                     continue_execution = true;
                 }
-                Expr::DisplayRegisters(_) => {
+                CommandExpr::DisplayRegisters(_) => {
                     registers::display_all(ctx.context);
                 }
-                Expr::Quit(_) => {
+                CommandExpr::Quit(_) => {
                     // The process will be terminated since we didn't detach.
                     return;
                 }
