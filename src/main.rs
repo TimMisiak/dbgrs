@@ -9,6 +9,7 @@ use std::ptr::null;
 use crate::command::grammar::CommandExpr;
 
 mod command;
+mod eval;
 mod registers;
 
 // Not sure why these are missing from windows_sys, but the definitions are in winnt.h
@@ -174,6 +175,10 @@ fn main_debugger_loop(_process: HANDLE) {
                 }
                 CommandExpr::DisplayBytes(_, _) => {
                     println!("TODO: display bytes");
+                }
+                CommandExpr::Evaluate(_, expr) => {
+                    let val = eval::evaluate_expression(*expr);
+                    println!(" = 0x{:X}", val);
                 }
                 CommandExpr::Quit(_) => {
                     // The process will be terminated since we didn't detach.

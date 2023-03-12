@@ -12,6 +12,7 @@ pub mod grammar {
         Go(#[rust_sitter::leaf(text = "g")] ()),
         DisplayRegisters(#[rust_sitter::leaf(text = "r")] ()),
         DisplayBytes(#[rust_sitter::leaf(text = "db")] (), Box<EvalExpr>),
+        Evaluate(#[rust_sitter::leaf(text = "?")] (), Box<EvalExpr>),
         Quit(#[rust_sitter::leaf(text = "q")] ()),
     }
     #[rust_sitter::language]
