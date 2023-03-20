@@ -4,13 +4,14 @@ use windows_sys::{
     Win32::System::{Diagnostics::Debug::*, Threading::*, WindowsProgramming::INFINITE},
 };
 
+use command::grammar::CommandExpr;
 use core::ffi::c_void;
-use std::ptr::null;
-
-use crate::command::grammar::CommandExpr;
+use std::{ops::Deref, ptr::null};
 
 mod command;
 mod eval;
+mod memory;
+mod process;
 mod registers;
 
 // Not sure why these are missing from windows_sys, but the definitions are in winnt.h
@@ -99,6 +100,8 @@ fn parse_command_line() -> Result<Vec<u16>, &'static str> {
 
 fn main_debugger_loop(process: HANDLE) {
     let mut expect_step_exception = false;
+    let mem_source = memory::make_live_memory_source(process);
+
     loop {
         let mut debug_event: DEBUG_EVENT = unsafe { std::mem::zeroed() };
         unsafe {
@@ -129,9 +132,40 @@ fn main_debugger_loop(process: HANDLE) {
             CREATE_PROCESS_DEBUG_EVENT => println!("CreateProcess"),
             EXIT_THREAD_DEBUG_EVENT => println!("ExitThread"),
             EXIT_PROCESS_DEBUG_EVENT => println!("ExitProcess"),
-            LOAD_DLL_DEBUG_EVENT => println!("LoadDll"),
+            LOAD_DLL_DEBUG_EVENT => {
+                let load_dll = unsafe { debug_event.u.LoadDll };
+                let dll_base: u64 = load_dll.lpBaseOfDll as u64;
+                if load_dll.lpImageName != std::ptr::null_mut() {
+                    let dll_name_address = memory::read_memory_data::<u64>(
+                        mem_source.as_ref(),
+                        load_dll.lpImageName as u64,
+                    )
+                    .unwrap();
+                    let is_wide = load_dll.fUnicode != 0;
+
+                    let dll_name = memory::read_memory_string(
+                        mem_source.as_ref(),
+                        dll_name_address,
+                        260,
+                        is_wide,
+                    )
+                    .unwrap();
+
+                    println!("LoadDll: {:X}   {}", dll_base, dll_name);
+                } else {
+                    println!("LoadDll: {:X}", dll_base);
+                };
+            }
             UNLOAD_DLL_DEBUG_EVENT => println!("UnloadDll"),
-            OUTPUT_DEBUG_STRING_EVENT => println!("OutputDebugString"),
+            OUTPUT_DEBUG_STRING_EVENT => {
+                let debug_string_info = unsafe { debug_event.u.DebugString };
+                let is_wide = debug_string_info.fUnicode != 0;
+                let address = debug_string_info.lpDebugStringData as u64;
+                let len = debug_string_info.nDebugStringLength as usize;
+                let debug_string =
+                    memory::read_memory_string(mem_source.as_ref(), address, len, is_wide).unwrap();
+                println!("DebugOut: {}", debug_string);
+            }
             RIP_EVENT => println!("RipEvent"),
             _ => panic!("Unexpected debug event"),
         }

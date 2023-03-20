@@ -15,17 +15,22 @@ pub mod grammar {
         Evaluate(#[rust_sitter::leaf(text = "?")] (), Box<EvalExpr>),
         Quit(#[rust_sitter::leaf(text = "q")] ()),
     }
+
     #[rust_sitter::language]
     pub enum EvalExpr {
-        Number(
-            #[rust_sitter::leaf(pattern = r" *(\d+|0x[0-9a-fA-F]+)", transform = parse_int)] u64,
-        ),
+        Number(#[rust_sitter::leaf(pattern = r"(\d+|0x[0-9a-fA-F]+)", transform = parse_int)] u64),
         #[rust_sitter::prec_left(1)]
         Add(
             Box<EvalExpr>,
             #[rust_sitter::leaf(text = "+")] (),
             Box<EvalExpr>,
         ),
+    }
+
+    #[rust_sitter::extra]
+    struct Whitespace {
+        #[rust_sitter::leaf(pattern = r"\s")]
+        _whitespace: (),
     }
 
     fn parse_int(text: &str) -> u64 {
