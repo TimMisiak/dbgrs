@@ -209,26 +209,12 @@ fn main_debugger_loop(process: HANDLE) {
                     registers::display_all(ctx.context);
                 }
                 CommandExpr::DisplayBytes(_, expr) => {
-                    let addr = eval::evaluate_expression(*expr);
-                    let mut buffer: [u8; 16] = [0; 16];
-                    let mut bytes_read: usize = 0;
-                    let result = unsafe {
-                        ReadProcessMemory(
-                            process,
-                            addr as *const c_void,
-                            buffer.as_mut_ptr() as *mut c_void,
-                            buffer.len(),
-                            &mut bytes_read as *mut usize,
-                        )
-                    };
-                    if result == 0 {
-                        println!("ReadProcessMemory failed");
-                    } else {
-                        for n in 0..bytes_read {
-                            print!("{:02X} ", buffer[n]);
-                        }
-                        println!();
+                    let address = eval::evaluate_expression(*expr);
+                    let bytes = mem_source.read_raw_memory(address, 16);
+                    for byte in bytes {
+                        print!("{:02X} ", byte);
                     }
+                    println!();
                 }
                 CommandExpr::Evaluate(_, expr) => {
                     let val = eval::evaluate_expression(*expr);
