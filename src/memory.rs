@@ -30,6 +30,20 @@ pub fn read_memory_array<T: Sized + Default>(
     Ok(data)
 }
 
+pub fn read_memory_full_array<T: Sized + Default>(
+    source: &dyn MemorySource,
+    address: u64,
+    count: usize,
+) -> Result<Vec<T>, &'static str> {
+    let arr = read_memory_array(source, address, count)?;
+
+    if arr.len() != count {
+        Err("Could not read all items")
+    } else {
+        Ok(arr)
+    }
+}
+
 pub fn read_memory_data<T: Sized + Default + Copy>(
     source: &dyn MemorySource,
     address: u64,
@@ -57,9 +71,20 @@ pub fn read_memory_string(
         if let Some(null_pos) = null_pos {
             bytes.truncate(null_pos);
         }
+        // TODO: This is not quite right. Technically most strings read here are encoded as ASCII.
         String::from_utf8(bytes).unwrap()
     };
     Ok(result)
+}
+
+pub fn read_memory_string_indirect(
+    source: &dyn MemorySource,
+    address: u64,
+    max_count: usize,
+    is_wide: bool,
+) -> Result<String, &'static str> {
+    let string_address = read_memory_data::<u64>(source, address)?;
+    read_memory_string(source, string_address, max_count, is_wide)
 }
 
 struct LiveMemorySource {

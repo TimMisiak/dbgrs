@@ -1,18 +1,22 @@
+use memory::MemorySource;
 use windows_sys::{
     Win32::Foundation::*,
-    Win32::System::Environment::*,
-    Win32::System::{Diagnostics::Debug::*, Threading::*, WindowsProgramming::INFINITE},
+    Win32::{System::Environment::*, Storage::FileSystem::{GetFinalPathNameByHandleW}},
+    Win32::System::{Diagnostics::Debug::*, Threading::*},
 };
 
-use command::grammar::CommandExpr;
-use core::ffi::c_void;
-use std::{ops::Deref, ptr::null};
+use std::{ptr::null, os::windows::prelude::OsStringExt};
 
 mod command;
 mod eval;
 mod memory;
 mod process;
 mod registers;
+mod module;
+mod name_resolution;
+
+use process::Process;
+use command::grammar::CommandExpr;
 
 // Not sure why these are missing from windows_sys, but the definitions are in winnt.h
 const CONTEXT_AMD64: u32 = 0x00100000;
@@ -98,9 +102,16 @@ fn parse_command_line() -> Result<Vec<u16>, &'static str> {
     Ok(cmd_line_iter.collect())
 }
 
+fn load_module_at_address(process: &mut Process, memory_source: &dyn MemorySource, base_address: u64, module_name: Option<String>) {
+    let module = process.add_module(base_address, module_name, memory_source).unwrap();
+
+    println!("LoadDll: {:X}   {}", base_address, module.name);
+}
+
 fn main_debugger_loop(process: HANDLE) {
     let mut expect_step_exception = false;
     let mem_source = memory::make_live_memory_source(process);
+    let mut process = Process::new();
 
     loop {
         let mut debug_event: DEBUG_EVENT = unsafe { std::mem::zeroed() };
@@ -129,32 +140,43 @@ fn main_debugger_loop(process: HANDLE) {
                 }
             }
             CREATE_THREAD_DEBUG_EVENT => println!("CreateThread"),
-            CREATE_PROCESS_DEBUG_EVENT => println!("CreateProcess"),
+            CREATE_PROCESS_DEBUG_EVENT => {
+                println!("CreateProcess");
+                let create_process = unsafe { debug_event.u.CreateProcessInfo };
+                let exe_base = create_process.lpBaseOfImage as u64;
+                let mut exe_name = vec![0u16; 260];
+                let exe_name_len = unsafe { GetFinalPathNameByHandleW(create_process.hFile, exe_name.as_mut_ptr(), 260, 0) } as usize;
+                let exe_name = if exe_name_len != 0 {
+                    // This will be the full name, e.g. \\?\C:\git\HelloWorld\hello.exe
+                    // It might be useful to have the full name, but it's not available for all
+                    // modules in all cases.
+                    let full_path = std::ffi::OsString::from_wide(&exe_name[0..exe_name_len]);
+                    let file_name = std::path::Path::new(&full_path).file_name();
+
+                    match file_name {
+                        None => None,
+                        Some(s) => Some(s.to_string_lossy().to_string())
+                    }
+                } else {
+                    None
+                };
+                
+                load_module_at_address(&mut process, mem_source.as_ref(), exe_base, exe_name);
+            },
             EXIT_THREAD_DEBUG_EVENT => println!("ExitThread"),
             EXIT_PROCESS_DEBUG_EVENT => println!("ExitProcess"),
             LOAD_DLL_DEBUG_EVENT => {
                 let load_dll = unsafe { debug_event.u.LoadDll };
                 let dll_base: u64 = load_dll.lpBaseOfDll as u64;
-                if load_dll.lpImageName != std::ptr::null_mut() {
-                    let dll_name_address = memory::read_memory_data::<u64>(
-                        mem_source.as_ref(),
-                        load_dll.lpImageName as u64,
-                    )
-                    .unwrap();
-                    let is_wide = load_dll.fUnicode != 0;
-
-                    let dll_name = memory::read_memory_string(
-                        mem_source.as_ref(),
-                        dll_name_address,
-                        260,
-                        is_wide,
-                    )
-                    .unwrap();
-
-                    println!("LoadDll: {:X}   {}", dll_base, dll_name);
+                let dll_name = if load_dll.lpImageName == std::ptr::null_mut() {
+                    None
                 } else {
-                    println!("LoadDll: {:X}", dll_base);
+                    let is_wide = load_dll.fUnicode != 0;
+                    memory::read_memory_string_indirect(mem_source.as_ref(), load_dll.lpImageName as u64, 260, is_wide)
+                        .map_or(None, |x| Some(x))
                 };
+
+                load_module_at_address(&mut process, mem_source.as_ref(), dll_base, dll_name);
             }
             UNLOAD_DLL_DEBUG_EVENT => println!("UnloadDll"),
             OUTPUT_DEBUG_STRING_EVENT => {
@@ -188,7 +210,12 @@ fn main_debugger_loop(process: HANDLE) {
         let mut continue_execution = false;
 
         while !continue_execution {
-            println!("[{:X}] {:#018x}", debug_event.dwThreadId, ctx.context.Rip);
+
+            if let Some(sym) = name_resolution::resolve_address_to_name(ctx.context.Rip, &mut process) {
+                println!("[{:X}] {}", debug_event.dwThreadId, sym);
+            } else {
+                println!("[{:X}] {:#018x}", debug_event.dwThreadId, ctx.context.Rip);
+            }
 
             let cmd = command::read_command();
 
@@ -219,6 +246,14 @@ fn main_debugger_loop(process: HANDLE) {
                 CommandExpr::Evaluate(_, expr) => {
                     let val = eval::evaluate_expression(*expr);
                     println!(" = 0x{:X}", val);
+                }
+                CommandExpr::ListNearest(_, expr) => {
+                    let val = eval::evaluate_expression(*expr);
+                    if let Some(sym) = name_resolution::resolve_address_to_name(val, &mut process) {
+                        println!("{}", sym);
+                    } else {
+                        println!("No symbol found");
+                    }
                 }
                 CommandExpr::Quit(_) => {
                     // The process will be terminated since we didn't detach.

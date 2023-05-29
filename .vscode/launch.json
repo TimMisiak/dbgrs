@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["cmd.exe", "/k", "echo hello"],
+            "args": ["C:\\git\\HelloWorld\\hello.exe"],
             "cwd": "${workspaceFolder}"
         },
         {

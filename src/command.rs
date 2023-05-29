@@ -13,6 +13,7 @@ pub mod grammar {
         DisplayRegisters(#[rust_sitter::leaf(text = "r")] ()),
         DisplayBytes(#[rust_sitter::leaf(text = "db")] (), Box<EvalExpr>),
         Evaluate(#[rust_sitter::leaf(text = "?")] (), Box<EvalExpr>),
+        ListNearest(#[rust_sitter::leaf(text = "ln")] (), Box<EvalExpr>),
         Quit(#[rust_sitter::leaf(text = "q")] ()),
     }
 
