@@ -1,11 +1,12 @@
+use event::DebugEvent;
 use memory::MemorySource;
 use windows_sys::{
     Win32::Foundation::*,
-    Win32::{System::Environment::*, Storage::FileSystem::{GetFinalPathNameByHandleW}},
+    Win32::System::Environment::*,
     Win32::System::{Diagnostics::Debug::*, Threading::*},
 };
 
-use std::{ptr::null, os::windows::prelude::OsStringExt};
+use std::ptr::null;
 
 mod command;
 mod eval;
@@ -14,6 +15,7 @@ mod process;
 mod registers;
 mod module;
 mod name_resolution;
+mod event;
 
 use process::Process;
 use command::grammar::CommandExpr;
@@ -114,89 +116,45 @@ fn main_debugger_loop(process: HANDLE) {
     let mut process = Process::new();
 
     loop {
-        let mut debug_event: DEBUG_EVENT = unsafe { std::mem::zeroed() };
-        unsafe {
-            WaitForDebugEventEx(&mut debug_event, INFINITE);
-        }
+        let (event_context, debug_event) = event::wait_for_next_debug_event(mem_source.as_ref());
 
         let mut continue_status = DBG_CONTINUE;
-
-        match debug_event.dwDebugEventCode {
-            EXCEPTION_DEBUG_EVENT => {
-                let code = unsafe { debug_event.u.Exception.ExceptionRecord.ExceptionCode };
-                let first_chance = unsafe { debug_event.u.Exception.dwFirstChance };
-                let chance_string = if first_chance == 0 {
+        let mut is_exit = false;
+        match debug_event {
+            DebugEvent::Exception { first_chance, exception_code } => {
+                let chance_string = if first_chance {
                     "second chance"
                 } else {
                     "first chance"
                 };
-
-                if expect_step_exception && code == EXCEPTION_SINGLE_STEP {
+    
+                if expect_step_exception && exception_code == EXCEPTION_SINGLE_STEP {
                     expect_step_exception = false;
                     continue_status = DBG_CONTINUE;
                 } else {
-                    println!("Exception code {:x} ({})", code, chance_string);
+                    println!("Exception code {:x} ({})", exception_code, chance_string);
                     continue_status = DBG_EXCEPTION_NOT_HANDLED;
                 }
-            }
-            CREATE_THREAD_DEBUG_EVENT => println!("CreateThread"),
-            CREATE_PROCESS_DEBUG_EVENT => {
-                println!("CreateProcess");
-                let create_process = unsafe { debug_event.u.CreateProcessInfo };
-                let exe_base = create_process.lpBaseOfImage as u64;
-                let mut exe_name = vec![0u16; 260];
-                let exe_name_len = unsafe { GetFinalPathNameByHandleW(create_process.hFile, exe_name.as_mut_ptr(), 260, 0) } as usize;
-                let exe_name = if exe_name_len != 0 {
-                    // This will be the full name, e.g. \\?\C:\git\HelloWorld\hello.exe
-                    // It might be useful to have the full name, but it's not available for all
-                    // modules in all cases.
-                    let full_path = std::ffi::OsString::from_wide(&exe_name[0..exe_name_len]);
-                    let file_name = std::path::Path::new(&full_path).file_name();
-
-                    match file_name {
-                        None => None,
-                        Some(s) => Some(s.to_string_lossy().to_string())
-                    }
-                } else {
-                    None
-                };
-                
+            },
+            DebugEvent::CreateProcess { exe_name, exe_base } => {
                 load_module_at_address(&mut process, mem_source.as_ref(), exe_base, exe_name);
             },
-            EXIT_THREAD_DEBUG_EVENT => println!("ExitThread"),
-            EXIT_PROCESS_DEBUG_EVENT => println!("ExitProcess"),
-            LOAD_DLL_DEBUG_EVENT => {
-                let load_dll = unsafe { debug_event.u.LoadDll };
-                let dll_base: u64 = load_dll.lpBaseOfDll as u64;
-                let dll_name = if load_dll.lpImageName == std::ptr::null_mut() {
-                    None
-                } else {
-                    let is_wide = load_dll.fUnicode != 0;
-                    memory::read_memory_string_indirect(mem_source.as_ref(), load_dll.lpImageName as u64, 260, is_wide)
-                        .map_or(None, |x| Some(x))
-                };
-
-                load_module_at_address(&mut process, mem_source.as_ref(), dll_base, dll_name);
-            }
-            UNLOAD_DLL_DEBUG_EVENT => println!("UnloadDll"),
-            OUTPUT_DEBUG_STRING_EVENT => {
-                let debug_string_info = unsafe { debug_event.u.DebugString };
-                let is_wide = debug_string_info.fUnicode != 0;
-                let address = debug_string_info.lpDebugStringData as u64;
-                let len = debug_string_info.nDebugStringLength as usize;
-                let debug_string =
-                    memory::read_memory_string(mem_source.as_ref(), address, len, is_wide).unwrap();
-                println!("DebugOut: {}", debug_string);
-            }
-            RIP_EVENT => println!("RipEvent"),
-            _ => panic!("Unexpected debug event"),
+            DebugEvent::LoadModule { module_name, module_base } => {
+                load_module_at_address(&mut process, mem_source.as_ref(), module_base, module_name);
+            },
+            DebugEvent::OutputDebugString(debug_string) => println!("DebugOut: {}", debug_string),
+            DebugEvent::Other(msg) => println!("{}", msg),
+            DebugEvent::ExitProcess => {
+                is_exit = true;
+                println!("ExitProcess");
+            },
         }
 
         let thread = AutoClosedHandle(unsafe {
             OpenThread(
                 THREAD_GET_CONTEXT | THREAD_SET_CONTEXT,
                 FALSE,
-                debug_event.dwThreadId,
+                event_context.thread_id,
             )
         });
         let mut ctx: AlignedContext = unsafe { std::mem::zeroed() };
@@ -212,9 +170,9 @@ fn main_debugger_loop(process: HANDLE) {
         while !continue_execution {
 
             if let Some(sym) = name_resolution::resolve_address_to_name(ctx.context.Rip, &mut process) {
-                println!("[{:X}] {}", debug_event.dwThreadId, sym);
+                println!("[{:X}] {}", event_context.thread_id, sym);
             } else {
-                println!("[{:X}] {:#018x}", debug_event.dwThreadId, ctx.context.Rip);
+                println!("[{:X}] {:#018x}", event_context.thread_id, ctx.context.Rip);
             }
 
             let cmd = command::read_command();
@@ -262,14 +220,14 @@ fn main_debugger_loop(process: HANDLE) {
             }
         }
 
-        if debug_event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT {
+        if is_exit {
             break;
         }
 
         unsafe {
             ContinueDebugEvent(
-                debug_event.dwProcessId,
-                debug_event.dwThreadId,
+                event_context.process_id,
+                event_context.thread_id,
                 continue_status,
             );
         }
