@@ -16,9 +16,11 @@ mod registers;
 mod module;
 mod name_resolution;
 mod event;
+mod breakpoint;
 
 use process::Process;
 use command::grammar::CommandExpr;
+use breakpoint::BreakpointManager;
 
 // Not sure why these are missing from windows_sys, but the definitions are in winnt.h
 const CONTEXT_AMD64: u32 = 0x00100000;
@@ -114,6 +116,7 @@ fn main_debugger_loop(process: HANDLE) {
     let mut expect_step_exception = false;
     let mem_source = memory::make_live_memory_source(process);
     let mut process = Process::new();
+    let mut breakpoints = BreakpointManager::new();
 
     loop {
         let (event_context, debug_event) = event::wait_for_next_debug_event(mem_source.as_ref());
@@ -212,6 +215,17 @@ fn main_debugger_loop(process: HANDLE) {
                     } else {
                         println!("No symbol found");
                     }
+                }
+                CommandExpr::SetBreakpoint(_, expr) => {
+                    let addr = eval::evaluate_expression(*expr);
+                    breakpoints.add_breakpoint(addr)
+                }
+                CommandExpr::ListBreakpoints(_) => {
+                    breakpoints.list_breakpoints(&mut process)
+                }
+                CommandExpr::ClearBreakpoint(_, expr) => {
+                    let id = eval::evaluate_expression(*expr);
+                    breakpoints.clear_breakpoint(id as u32);
                 }
                 CommandExpr::Quit(_) => {
                     // The process will be terminated since we didn't detach.

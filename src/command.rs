@@ -10,6 +10,9 @@ pub mod grammar {
     pub enum CommandExpr {
         StepInto(#[rust_sitter::leaf(text = "t")] ()),
         Go(#[rust_sitter::leaf(text = "g")] ()),
+        SetBreakpoint(#[rust_sitter::leaf(text = "bp")] (), Box<EvalExpr>),
+        ListBreakpoints(#[rust_sitter::leaf(text = "bl")] ()),
+        ClearBreakpoint(#[rust_sitter::leaf(text = "bc")] (), Box<EvalExpr>),
         DisplayRegisters(#[rust_sitter::leaf(text = "r")] ()),
         DisplayBytes(#[rust_sitter::leaf(text = "db")] (), Box<EvalExpr>),
         Evaluate(#[rust_sitter::leaf(text = "?")] (), Box<EvalExpr>),
