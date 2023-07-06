@@ -1,6 +1,6 @@
 use pdb::FallibleIterator;
 
-use crate::{process::Process, module::{Export, ExportTarget}};
+use crate::{process::Process, module::{Export, ExportTarget, Module}};
 
 enum AddressMatch<'a> {
     None,
@@ -14,6 +14,43 @@ impl AddressMatch<'_> {
             _ => false
         }
     }
+}
+
+pub fn resolve_name_to_address(sym: &str, process: &mut Process) -> Result<u64, String> {
+    match sym.chars().position(|c| c == '!') {
+        None => {
+            // Search all modules
+            Err("Not yet implemented".to_string())
+        },
+        Some(pos) => {
+            let module_name = &sym[..pos];
+            let func_name = &sym[pos + 1..];
+            if let Some(module) = process.get_module_by_name_mut(module_name) {
+                if let Some(addr) = resolve_function_in_module(module, func_name) {
+                    Ok(addr)
+                } else {
+                    Err(format!("Could not find {} in module {}", func_name, module_name))
+                }
+            } else {
+                Err(format!("Could not find module {}", module_name))
+            }
+        },
+    }
+}
+
+pub fn resolve_function_in_module(module: &mut Module, func: &str) -> Option<u64> {
+    // We'll search exports first and private symbols next
+    for export in module.exports.iter() {
+        if let Some(export_name) = &export.name {
+            if *export_name == *func {
+                // Just support direct exports for now, rather than forwarded functions.
+                if let ExportTarget::RVA(export_addr) = export.target {
+                    return Some(export_addr)
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn resolve_address_to_name(address: u64, process: &mut Process) -> Option<String> {

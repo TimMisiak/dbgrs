@@ -23,6 +23,7 @@ pub mod grammar {
     #[rust_sitter::language]
     pub enum EvalExpr {
         Number(#[rust_sitter::leaf(pattern = r"(\d+|0x[0-9a-fA-F]+)", transform = parse_int)] u64),
+        Symbol(#[rust_sitter::leaf(pattern = r"(([a-zA-Z0-9_@#.]+!)?[a-zA-Z0-9_@#.]+)", transform = parse_sym)] String),
         #[rust_sitter::prec_left(1)]
         Add(
             Box<EvalExpr>,
@@ -45,6 +46,10 @@ pub mod grammar {
         } else {
             text.parse().unwrap()
         }
+    }
+
+    fn parse_sym(text: &str) -> String {
+        text.to_owned()
     }
 }
 

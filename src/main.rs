@@ -17,48 +17,14 @@ mod module;
 mod name_resolution;
 mod event;
 mod breakpoint;
+mod util;
 
 use process::Process;
-use command::grammar::CommandExpr;
+use command::grammar::{CommandExpr, EvalExpr};
 use breakpoint::BreakpointManager;
-
-// Not sure why these are missing from windows_sys, but the definitions are in winnt.h
-const CONTEXT_AMD64: u32 = 0x00100000;
-const CONTEXT_CONTROL: u32 = CONTEXT_AMD64 | 0x00000001;
-const CONTEXT_INTEGER: u32 = CONTEXT_AMD64 | 0x00000002;
-const CONTEXT_SEGMENTS: u32 = CONTEXT_AMD64 | 0x00000004;
-const CONTEXT_FLOATING_POINT: u32 = CONTEXT_AMD64 | 0x00000008;
-const CONTEXT_DEBUG_REGISTERS: u32 = CONTEXT_AMD64 | 0x00000010;
-#[allow(dead_code)]
-const CONTEXT_FULL: u32 = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_FLOATING_POINT;
-const CONTEXT_ALL: u32 = CONTEXT_CONTROL
-    | CONTEXT_INTEGER
-    | CONTEXT_SEGMENTS
-    | CONTEXT_FLOATING_POINT
-    | CONTEXT_DEBUG_REGISTERS;
+use util::*;
 
 const TRAP_FLAG: u32 = 1 << 8;
-
-#[repr(align(16))]
-struct AlignedContext {
-    context: CONTEXT,
-}
-
-struct AutoClosedHandle(HANDLE);
-
-impl Drop for AutoClosedHandle {
-    fn drop(&mut self) {
-        unsafe {
-            CloseHandle(self.0);
-        }
-    }
-}
-
-impl AutoClosedHandle {
-    pub fn handle(&self) -> HANDLE {
-        self.0
-    }
-}
 
 fn show_usage(error_message: &str) {
     println!("Error: {msg}", msg = error_message);
@@ -121,18 +87,37 @@ fn main_debugger_loop(process: HANDLE) {
     loop {
         let (event_context, debug_event) = event::wait_for_next_debug_event(mem_source.as_ref());
 
+        // The thread context will be needed to determine what to do with some events
+        let thread = AutoClosedHandle(unsafe {
+            OpenThread(
+                THREAD_GET_CONTEXT | THREAD_SET_CONTEXT,
+                FALSE,
+                event_context.thread_id,
+            )
+        });
+
+        let mut ctx: AlignedContext = unsafe { std::mem::zeroed() };
+        ctx.context.ContextFlags = CONTEXT_ALL;
+        let ret = unsafe { GetThreadContext(thread.handle(), &mut ctx.context) };
+        if ret == 0 {
+            panic!("GetThreadContext failed");
+        }
+
         let mut continue_status = DBG_CONTINUE;
         let mut is_exit = false;
         match debug_event {
             DebugEvent::Exception { first_chance, exception_code } => {
                 let chance_string = if first_chance {
-                    "second chance"
-                } else {
                     "first chance"
+                } else {
+                    "second chance"
                 };
     
                 if expect_step_exception && exception_code == EXCEPTION_SINGLE_STEP {
                     expect_step_exception = false;
+                    continue_status = DBG_CONTINUE;
+                } else if let Some(bp_index) = breakpoints.was_breakpoint_hit(&ctx.context) {
+                    println!("Breakpoint {} hit", bp_index);
                     continue_status = DBG_CONTINUE;
                 } else {
                     println!("Exception code {:x} ({})", exception_code, chance_string);
@@ -141,6 +126,15 @@ fn main_debugger_loop(process: HANDLE) {
             },
             DebugEvent::CreateProcess { exe_name, exe_base } => {
                 load_module_at_address(&mut process, mem_source.as_ref(), exe_base, exe_name);
+                process.add_thread(event_context.thread_id);
+            },
+            DebugEvent::CreateThread { thread_id } => {
+                process.add_thread(thread_id);
+                println!("Thread created: {:x}", thread_id);
+            },
+            DebugEvent::ExitThread { thread_id } => {
+                process.remove_thread(thread_id);
+                println!("Thread exited: {:x}", thread_id);
             },
             DebugEvent::LoadModule { module_name, module_base } => {
                 load_module_at_address(&mut process, mem_source.as_ref(), module_base, module_name);
@@ -151,21 +145,6 @@ fn main_debugger_loop(process: HANDLE) {
                 is_exit = true;
                 println!("ExitProcess");
             },
-        }
-
-        let thread = AutoClosedHandle(unsafe {
-            OpenThread(
-                THREAD_GET_CONTEXT | THREAD_SET_CONTEXT,
-                FALSE,
-                event_context.thread_id,
-            )
-        });
-        let mut ctx: AlignedContext = unsafe { std::mem::zeroed() };
-        ctx.context.ContextFlags = CONTEXT_ALL;
-        let ret = unsafe { GetThreadContext(thread.handle(), &mut ctx.context) };
-
-        if ret == 0 {
-            panic!("GetThreadContext failed");
         }
 
         let mut continue_execution = false;
@@ -179,6 +158,19 @@ fn main_debugger_loop(process: HANDLE) {
             }
 
             let cmd = command::read_command();
+
+
+            let mut eval_expr = |expr: Box<EvalExpr>| -> Option<u64> {
+                let mut eval_context = eval::EvalContext{ process: &mut process };
+                let result = eval::evaluate_expression(*expr, &mut eval_context);
+                match result {
+                    Ok(val) => Some(val),
+                    Err(e) => {
+                        print!("Could not evaluate expression: {}", e);
+                        None
+                    }
+                }
+            };
 
             match cmd {
                 CommandExpr::StepInto(_) => {
@@ -197,35 +189,40 @@ fn main_debugger_loop(process: HANDLE) {
                     registers::display_all(ctx.context);
                 }
                 CommandExpr::DisplayBytes(_, expr) => {
-                    let address = eval::evaluate_expression(*expr);
-                    let bytes = mem_source.read_raw_memory(address, 16);
-                    for byte in bytes {
-                        print!("{:02X} ", byte);
+                    if let Some(address) = eval_expr(expr) {
+                        let bytes = mem_source.read_raw_memory(address, 16);
+                        for byte in bytes {
+                            print!("{:02X} ", byte);
+                        }
+                        println!();    
                     }
-                    println!();
                 }
                 CommandExpr::Evaluate(_, expr) => {
-                    let val = eval::evaluate_expression(*expr);
-                    println!(" = 0x{:X}", val);
+                    if let Some(val) = eval_expr(expr) {
+                        println!(" = 0x{:X}", val);
+                    }
                 }
                 CommandExpr::ListNearest(_, expr) => {
-                    let val = eval::evaluate_expression(*expr);
-                    if let Some(sym) = name_resolution::resolve_address_to_name(val, &mut process) {
-                        println!("{}", sym);
-                    } else {
-                        println!("No symbol found");
+                    if let Some(val) = eval_expr(expr) {
+                        if let Some(sym) = name_resolution::resolve_address_to_name(val, &mut process) {
+                            println!("{}", sym);
+                        } else {
+                            println!("No symbol found");
+                        }    
                     }
                 }
                 CommandExpr::SetBreakpoint(_, expr) => {
-                    let addr = eval::evaluate_expression(*expr);
-                    breakpoints.add_breakpoint(addr)
+                    if let Some(addr) = eval_expr(expr) {
+                        breakpoints.add_breakpoint(addr);
+                    }
                 }
                 CommandExpr::ListBreakpoints(_) => {
-                    breakpoints.list_breakpoints(&mut process)
+                    breakpoints.list_breakpoints(&mut process);
                 }
                 CommandExpr::ClearBreakpoint(_, expr) => {
-                    let id = eval::evaluate_expression(*expr);
-                    breakpoints.clear_breakpoint(id as u32);
+                    if let Some(id) = eval_expr(expr) {
+                        breakpoints.clear_breakpoint(id as u32);
+                    }
                 }
                 CommandExpr::Quit(_) => {
                     // The process will be terminated since we didn't detach.
@@ -238,6 +235,8 @@ fn main_debugger_loop(process: HANDLE) {
             break;
         }
 
+        breakpoints.apply_breakpoints(&mut process, event_context.thread_id, mem_source.as_ref());
+        
         unsafe {
             ContinueDebugEvent(
                 event_context.process_id,

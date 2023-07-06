@@ -1,6 +1,6 @@
 use std::os::windows::prelude::OsStringExt;
 
-use windows_sys::Win32::{System::{Diagnostics::Debug::{DEBUG_EVENT, WaitForDebugEventEx, EXCEPTION_DEBUG_EVENT, CREATE_THREAD_DEBUG_EVENT, CREATE_PROCESS_DEBUG_EVENT, EXIT_THREAD_DEBUG_EVENT, EXIT_PROCESS_DEBUG_EVENT, LOAD_DLL_DEBUG_EVENT, UNLOAD_DLL_DEBUG_EVENT, OUTPUT_DEBUG_STRING_EVENT, RIP_EVENT}, Threading::INFINITE}, Storage::FileSystem::GetFinalPathNameByHandleW};
+use windows_sys::Win32::{System::{Diagnostics::Debug::{DEBUG_EVENT, WaitForDebugEventEx, EXCEPTION_DEBUG_EVENT, CREATE_THREAD_DEBUG_EVENT, CREATE_PROCESS_DEBUG_EVENT, EXIT_THREAD_DEBUG_EVENT, EXIT_PROCESS_DEBUG_EVENT, LOAD_DLL_DEBUG_EVENT, UNLOAD_DLL_DEBUG_EVENT, OUTPUT_DEBUG_STRING_EVENT, RIP_EVENT}, Threading::{INFINITE, GetThreadId}}, Storage::FileSystem::GetFinalPathNameByHandleW, Foundation::CloseHandle};
 
 use crate::memory::{MemorySource, self};
 
@@ -9,6 +9,8 @@ use crate::memory::{MemorySource, self};
 pub enum DebugEvent {
     Exception{first_chance: bool, exception_code: i32},
     CreateProcess{exe_name: Option<String>, exe_base: u64},
+    CreateThread{thread_id: u32},
+    ExitThread{thread_id: u32},
     LoadModule{module_name: Option<String>, module_base: u64},
     OutputDebugString(String),
     ExitProcess,
@@ -34,7 +36,15 @@ pub fn wait_for_next_debug_event(mem_source: &dyn MemorySource) -> (EventContext
             let first_chance = unsafe { debug_event.u.Exception.dwFirstChance };
             (ctx, DebugEvent::Exception { first_chance: first_chance != 0, exception_code: code })
         },
-        CREATE_THREAD_DEBUG_EVENT => (ctx, DebugEvent::Other("CreateThread".to_string())),
+        CREATE_THREAD_DEBUG_EVENT => {
+            let create_thread = unsafe { debug_event.u.CreateThread };
+            let thread_id = unsafe { GetThreadId(create_thread.hThread) };
+            unsafe { CloseHandle(create_thread.hThread) };
+            (ctx, DebugEvent::CreateThread { thread_id } )
+        },
+        EXIT_THREAD_DEBUG_EVENT => {
+            (ctx, DebugEvent::ExitThread { thread_id: debug_event.dwThreadId} )
+        },
         CREATE_PROCESS_DEBUG_EVENT => {
             let create_process = unsafe { debug_event.u.CreateProcessInfo };
             let exe_base = create_process.lpBaseOfImage as u64;
@@ -58,7 +68,6 @@ pub fn wait_for_next_debug_event(mem_source: &dyn MemorySource) -> (EventContext
             //load_module_at_address(&mut process, mem_source.as_ref(), exe_base, exe_name);
             (ctx, DebugEvent::CreateProcess { exe_name, exe_base })
         },
-        EXIT_THREAD_DEBUG_EVENT => (ctx, DebugEvent::Other("ExitThread".to_string())),
         EXIT_PROCESS_DEBUG_EVENT => (ctx, DebugEvent::ExitProcess),
         LOAD_DLL_DEBUG_EVENT => {
             let load_dll = unsafe { debug_event.u.LoadDll };
