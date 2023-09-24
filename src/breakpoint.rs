@@ -125,6 +125,9 @@ impl BreakpointManager {
                         _ => (),
                     }
                 } else {
+                    // We'll assume that we own all breakpoints. This will cause problems with programs that expect to control their own debug registers.
+                    // As a result, we'll disable any breakpoints that we aren't using.
+                    set_bits(&mut ctx.context.Dr7, 0, DR7_LE_BIT[idx], 1);
                     break;
                 }    
             }
