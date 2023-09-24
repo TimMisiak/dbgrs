@@ -51,12 +51,21 @@ impl Process {
     }
 
     pub fn get_module_by_name_mut(&mut self, module_name: &str) -> Option<&mut Module> {
+        let mut potential_trimmed_match = None;
+    
         for module in self.module_list.iter_mut() {
             if module.name == module_name {
                 return Some(module);
             }
+    
+            if potential_trimmed_match.is_none() {
+                let trimmed = module.name.rsplitn(2, '\\').next().unwrap_or(&module.name);
+                if trimmed.to_lowercase() == module_name.to_lowercase() {
+                    potential_trimmed_match = Some(module);
+                }
+            }
         };
-
-        None
+    
+        potential_trimmed_match
     }
 }
