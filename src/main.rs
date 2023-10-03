@@ -6,7 +6,7 @@ use windows_sys::{
     Win32::System::{Diagnostics::Debug::*, Threading::*},
 };
 
-use std::ptr::null;
+use std::{ptr::null, mem::MaybeUninit};
 
 mod command;
 mod eval;
@@ -265,7 +265,7 @@ fn main() {
 
     let mut si: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
     si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
-    let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+    let mut pi: MaybeUninit<PROCESS_INFORMATION> = MaybeUninit::uninit();
     let ret = unsafe {
         CreateProcessW(
             null(),
@@ -277,13 +277,15 @@ fn main() {
             null(),
             null(),
             &mut si.StartupInfo,
-            &mut pi,
+            pi.as_mut_ptr(),
         )
     };
 
     if ret == 0 {
         panic!("CreateProcessW failed");
     }
+
+    let pi = unsafe { pi.assume_init() };
 
     unsafe { CloseHandle(pi.hThread) };
 
