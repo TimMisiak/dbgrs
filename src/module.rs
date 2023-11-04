@@ -36,18 +36,13 @@ pub enum ExportTarget {
     Forwarder(String)
 }
 
+#[derive(Default)]
 #[repr(C)]
 pub struct PdbInfo {
     pub signature: u32,
     pub guid: windows::core::GUID,
     pub age: u32,
     // Null terminated name goes after the end
-}
-
-impl ::core::default::Default for PdbInfo {
-    fn default() -> Self {
-        unsafe { ::core::mem::zeroed() }
-    }
 }
 
 impl ::core::marker::Copy for PdbInfo {}
