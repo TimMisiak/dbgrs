@@ -17,6 +17,8 @@ pub mod grammar {
         DisplayBytes(#[rust_sitter::leaf(text = "db")] (), Box<EvalExpr>),
         Evaluate(#[rust_sitter::leaf(text = "?")] (), Box<EvalExpr>),
         ListNearest(#[rust_sitter::leaf(text = "ln")] (), Box<EvalExpr>),
+        Unassemble(#[rust_sitter::leaf(text = "u")] (), Box<EvalExpr>),
+        UnassembleRip(#[rust_sitter::leaf(text = "u")] ()),
         Quit(#[rust_sitter::leaf(text = "q")] ()),
     }
 

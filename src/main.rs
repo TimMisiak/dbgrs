@@ -18,6 +18,7 @@ mod name_resolution;
 mod event;
 mod breakpoint;
 mod util;
+mod unassemble;
 
 use process::Process;
 use command::grammar::{CommandExpr, EvalExpr};
@@ -112,7 +113,7 @@ fn main_debugger_loop(process: HANDLE) {
                 } else {
                     "second chance"
                 };
-    
+
                 if expect_step_exception && exception_code == EXCEPTION_SINGLE_STEP {
                     expect_step_exception = false;
                     continue_status = DBG_CONTINUE;
@@ -194,7 +195,7 @@ fn main_debugger_loop(process: HANDLE) {
                         for byte in bytes {
                             print!("{:02X} ", byte);
                         }
-                        println!();    
+                        println!();
                     }
                 }
                 CommandExpr::Evaluate(_, expr) => {
@@ -208,8 +209,19 @@ fn main_debugger_loop(process: HANDLE) {
                             println!("{}", sym);
                         } else {
                             println!("No symbol found");
-                        }    
+                        }
                     }
+                }
+                CommandExpr::Unassemble(_, expr) => {
+                    if let Some(addr) = eval_expr(expr) {
+                        unassemble::unassemble(mem_source.as_ref(), addr, 16);
+                        println!();
+                    }
+                }
+                CommandExpr::UnassembleRip(_) => {
+                    let addr = ctx.context.Rip;
+                    unassemble::unassemble(mem_source.as_ref(), addr, 16);
+                    println!();
                 }
                 CommandExpr::SetBreakpoint(_, expr) => {
                     if let Some(addr) = eval_expr(expr) {
@@ -236,7 +248,7 @@ fn main_debugger_loop(process: HANDLE) {
         }
 
         breakpoints.apply_breakpoints(&mut process, event_context.thread_id, mem_source.as_ref());
-        
+
         unsafe {
             ContinueDebugEvent(
                 event_context.process_id,
