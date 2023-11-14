@@ -14,6 +14,7 @@ pub mod grammar {
         ListBreakpoints(#[rust_sitter::leaf(text = "bl")] ()),
         ClearBreakpoint(#[rust_sitter::leaf(text = "bc")] (), Box<EvalExpr>),
         DisplayRegisters(#[rust_sitter::leaf(text = "r")] ()),
+        StackWalk(#[rust_sitter::leaf(text = "k")] ()),
         DisplayBytes(#[rust_sitter::leaf(text = "db")] (), Box<EvalExpr>),
         Evaluate(#[rust_sitter::leaf(text = "?")] (), Box<EvalExpr>),
         ListNearest(#[rust_sitter::leaf(text = "ln")] (), Box<EvalExpr>),

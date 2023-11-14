@@ -1,6 +1,7 @@
 use crate::memory::{*, self};
+use windows::Win32::System::SystemInformation::IMAGE_FILE_MACHINE_AMD64;
 use windows::Win32::System::SystemServices::*;
-use windows::Win32::System::Diagnostics::Debug::*;
+use windows::Win32::System::Diagnostics::Debug::{*, IMAGE_DATA_DIRECTORY};
 use pdb::PDB;
 use std::fs::File;
 
@@ -12,6 +13,7 @@ pub struct Module {
     pub pdb_name: Option<String>,
     pub pdb_info: Option<PdbInfo>,
     pub pdb: Option<PDB<'static, File>>,
+    pe_header: IMAGE_NT_HEADERS64,
 }
 
 pub struct Export {
@@ -56,14 +58,19 @@ impl Module {
     pub fn from_memory_view(module_address: u64, module_name: Option<String>, memory_source: &dyn MemorySource) -> Result<Module, &'static str> {
 
         let dos_header: IMAGE_DOS_HEADER = memory::read_memory_data(memory_source, module_address)?;
+
         // NOTE: Do we trust that the headers are accurate, even if it means we could read outside the bounds of the
         //       module? For this debugger, we'll trust the data, but a real debugger should do sanity checks and 
         //       report discrepancies to the user in some way.
         let pe_header_addr = module_address + dos_header.e_lfanew as u64;
 
-        // NOTE: This should be IMAGE_NT_HEADERS32 on x86 processes
+        // NOTE: This should be IMAGE_NT_HEADERS32 for 32-bit modules, but the FileHeader lines up for both structures.
         let pe_header: IMAGE_NT_HEADERS64 = memory::read_memory_data(memory_source, pe_header_addr)?;
         let size = pe_header.OptionalHeader.SizeOfImage as u64;
+
+        if pe_header.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 {
+            return Err("Unsupported machine architecture for module");
+        }
         
         let (pdb_info, pdb_name, pdb) = Module::read_debug_info(&pe_header, module_address, memory_source)?;
         let (exports, export_table_module_name) = Module::read_exports(&pe_header, module_address, memory_source)?;
@@ -76,7 +83,16 @@ impl Module {
             }
         };
 
-        Ok(Module{name: module_name, address: module_address, size, exports, pdb_info, pdb_name, pdb})
+        Ok(Module{
+            name: module_name,
+            address: module_address,
+            size,
+            exports,
+            pdb_info,
+            pdb_name,
+            pdb,
+            pe_header
+        })
     }
 
     pub fn contains_address(&self, address: u64) -> bool {
@@ -118,6 +134,10 @@ impl Module {
         }
 
         Ok((pdb_info, pdb_name, pdb))
+    }
+
+    pub fn get_data_directory(&self, entry: IMAGE_DIRECTORY_ENTRY) -> IMAGE_DATA_DIRECTORY {
+        self.pe_header.OptionalHeader.DataDirectory[entry.0 as usize]
     }
 
     fn read_exports(pe_header: &IMAGE_NT_HEADERS64, module_address: u64, memory_source: &dyn MemorySource) -> Result<(Vec::<Export>, Option<String>), &'static str> {

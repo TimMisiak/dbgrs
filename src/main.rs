@@ -13,6 +13,7 @@ mod eval;
 mod memory;
 mod process;
 mod registers;
+mod stack;
 mod module;
 mod name_resolution;
 mod event;
@@ -222,6 +223,23 @@ fn main_debugger_loop(process: HANDLE) {
                 CommandExpr::ClearBreakpoint(_, expr) => {
                     if let Some(id) = eval_expr(expr) {
                         breakpoints.clear_breakpoint(id as u32);
+                    }
+                }
+                CommandExpr::StackWalk(_) => {
+                    let mut context = ctx.context.clone();
+                    println!(" #   RSP              Call Site");
+                    let mut frame_number = 0;
+                    loop {
+                        if let Some(sym) = name_resolution::resolve_address_to_name(context.Rip, &mut process) {
+                            println!("{:02X} 0x{:016X} {}", frame_number, context.Rsp, sym);
+                        } else {
+                            println!("{:02X} 0x{:016X} 0x{:X}", frame_number, context.Rsp, context.Rip);
+                        }
+                        match stack::unwind_context(&mut process, context, mem_source.as_ref()) {
+                            Ok(Some(unwound_context)) => context = unwound_context,
+                            _ => break
+                        }
+                        frame_number += 1;
                     }
                 }
                 CommandExpr::Quit(_) => {
