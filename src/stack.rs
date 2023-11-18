@@ -209,8 +209,8 @@ fn apply_unwind_ops(context: &CONTEXT, unwind_ops: &[UnwindCode], func_address: 
                 UnwindOp::PushNonVolatile { reg } => {
                     let addr = unwound_context.Rsp;
                     let val = read_memory_data::<u64>(memory_source, addr)?;
-                    unwound_context.Rsp += 8;
                     *get_op_register(&mut unwound_context, reg) = val;
+                    unwound_context.Rsp += 8;
                 }
                 UnwindOp::SaveNonVolatile { reg, offset } => {
                     let addr = unwound_context.Rsp + offset as u64;
