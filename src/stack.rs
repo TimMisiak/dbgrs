@@ -49,7 +49,7 @@ const UNW_FLAG_CHAININFO: u8 = 0x4;
 enum UnwindOp {
     PushNonVolatile { reg: u8 },
     Alloc { size: u32 },
-    SetFpreg,
+    SetFpreg { frame_register: u8, frame_offset: u16 },
     SaveNonVolatile { reg: u8, offset: u32 },
     SaveXmm128 { reg: u8, offset: u32 },
     PushMachFrame { error_code: bool }
@@ -99,7 +99,7 @@ macro_rules! split_up {
     };
 }
 
-fn get_unwind_ops(code_slots: &[u16]) -> Result<Vec<UnwindCode>, &'static str> {
+fn get_unwind_ops(code_slots: &[u16], frame_register: u8, frame_offset: u16) -> Result<Vec<UnwindCode>, &'static str> {
     let mut ops = Vec::<UnwindCode>::new();
 
     let mut i = 0;
@@ -133,7 +133,7 @@ fn get_unwind_ops(code_slots: &[u16]) -> Result<Vec<UnwindCode>, &'static str> {
                 ops.push(UnwindCode { code_offset, op: UnwindOp::Alloc { size } });
             }
             UWOP_SET_FPREG => {
-                ops.push(UnwindCode { code_offset, op: UnwindOp::SetFpreg });
+                ops.push(UnwindCode { code_offset, op: UnwindOp::SetFpreg { frame_register, frame_offset } });
             }
             UWOP_SAVE_NONVOL => {
                 if i + 1 >= code_slots.len() {
@@ -217,6 +217,9 @@ fn apply_unwind_ops(context: &CONTEXT, unwind_ops: &[UnwindCode], func_address: 
                     let val = read_memory_data::<u64>(memory_source, addr)?;
                     *get_op_register(&mut unwound_context, reg) = val;
                 }
+                UnwindOp::SetFpreg { frame_register, frame_offset } => {
+                    unwound_context.Rsp = *get_op_register(&mut unwound_context, frame_register) - (frame_offset as u64);
+                }
                 _ => panic!("NYI unwind op")
             }
         }
@@ -246,13 +249,13 @@ pub fn unwind_context(process: &mut Process, context: CONTEXT, memory_source: &d
                 if flags & UNW_FLAG_CHAININFO == UNW_FLAG_CHAININFO {
                     return Err("NYI: Chained info");
                 }
-                if info.frame_register_offset != 0 {
-                    return Err("NYI frame_register_offset")
-                }
+
+                let (frame_register, frame_offset) = split_up!(info.frame_register_offset => 4, 4);
+                let frame_offset = (frame_offset as u16) * 16;
                 // The codes are UNWIND_CODE, but we'll have to break them up in different ways anyway based on the operation, so we might as well just
                 // read them as u16 and then parse out the fields as needed.
                 let codes = read_memory_full_array::<u16>(memory_source, info_addr + 4, info.count_of_codes as usize)?;
-                let unwind_ops = get_unwind_ops(&codes)?;
+                let unwind_ops = get_unwind_ops(&codes, frame_register, frame_offset)?;
                 match apply_unwind_ops(&context, &unwind_ops, module.address + func.BeginAddress as u64, memory_source)? {
                     Some(ctx) => {
                         let mut ctx = ctx;
