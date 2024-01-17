@@ -13,6 +13,7 @@ pub mod grammar {
         SetBreakpoint(#[rust_sitter::leaf(text = "bp")] (), Box<EvalExpr>),
         ListBreakpoints(#[rust_sitter::leaf(text = "bl")] ()),
         ClearBreakpoint(#[rust_sitter::leaf(text = "bc")] (), Box<EvalExpr>),
+        DisplaySpecificRegister(#[rust_sitter::leaf(text = "r")] (), #[rust_sitter::leaf(pattern = "([a-zA-Z]+)", transform = parse_sym)] String),
         DisplayRegisters(#[rust_sitter::leaf(text = "r")] ()),
         StackWalk(#[rust_sitter::leaf(text = "k")] ()),
         DisplayBytes(#[rust_sitter::leaf(text = "db")] (), Box<EvalExpr>),

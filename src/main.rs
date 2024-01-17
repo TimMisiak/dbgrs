@@ -163,7 +163,7 @@ fn main_debugger_loop(process: HANDLE) {
 
 
             let mut eval_expr = |expr: Box<EvalExpr>| -> Option<u64> {
-                let mut eval_context = eval::EvalContext{ process: &mut process };
+                let mut eval_context = eval::EvalContext{ process: &mut process, register_context: &ctx.context };
                 let result = eval::evaluate_expression(*expr, &mut eval_context);
                 match result {
                     Ok(val) => Some(val),
@@ -188,7 +188,10 @@ fn main_debugger_loop(process: HANDLE) {
                     continue_execution = true;
                 }
                 CommandExpr::DisplayRegisters(_) => {
-                    registers::display_all(ctx.context);
+                    registers::display_all(&ctx.context);
+                }
+                CommandExpr::DisplaySpecificRegister(_, reg) => {
+                    registers::display_named(&ctx.context, &reg);
                 }
                 CommandExpr::DisplayBytes(_, expr) => {
                     if let Some(address) = eval_expr(expr) {
