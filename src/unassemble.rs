@@ -4,27 +4,17 @@ use crate::memory::MemorySource;
 
 pub fn unassemble(memory_source: &dyn MemorySource, va: u64, lines: usize) {
 
-    // read one page
-    let rw = memory_source.read_memory(va, 0x1000);
-    if !rw.is_ok() {
+    // We'll never need more than lines * 15
+    let bytes = memory_source.read_raw_memory(va, lines * 15);
+    if bytes.len() == 0 {
         println!("Failed to read memory at {:X}", va);
-        return;
-    }
-    let bytes = rw.unwrap();
-
-    // convert Vec<Option<u8>> to Vec<u8>
-    let mut bytes_read = vec![];
-    for b in bytes {
-        if let Some(b) = b {
-            bytes_read.push(b);
-        }
     }
 
     let code_bitness = 64;
     let hexbytes_column_byte_length = 10;
     let mut decoder = Decoder::with_ip(
         code_bitness,
-        bytes_read.as_slice(),
+        bytes.as_slice(),
         va,
         DecoderOptions::NONE,
     );
@@ -63,7 +53,7 @@ pub fn unassemble(memory_source: &dyn MemorySource, va: u64, lines: usize) {
         // Eg. "00007FFAC46ACDB2 488DAC2400FFFFFF     lea       rbp,[rsp-100h]"
         print!("{:016X} ", instruction.ip());
         let start_index = (instruction.ip() - va) as usize;
-        let instr_bytes = &bytes_read[start_index..start_index + instruction.len()];
+        let instr_bytes = &bytes[start_index..start_index + instruction.len()];
         for b in instr_bytes.iter() {
             print!("{:02X}", b);
         }
