@@ -149,6 +149,7 @@ fn main_debugger_loop(process: HANDLE) {
             },
         }
 
+        let mut next_unassemble_address = ctx.context.Rip;
         let mut continue_execution = false;
 
         while !continue_execution {
@@ -218,14 +219,11 @@ fn main_debugger_loop(process: HANDLE) {
                 }
                 CommandExpr::Unassemble(_, expr) => {
                     if let Some(addr) = eval_expr(expr) {
-                        unassemble::unassemble(mem_source.as_ref(), addr, 16);
-                        println!();
+                        next_unassemble_address = unassemble::unassemble(mem_source.as_ref(), addr, 16);
                     }
                 }
-                CommandExpr::UnassembleRip(_) => {
-                    let addr = ctx.context.Rip;
-                    unassemble::unassemble(mem_source.as_ref(), addr, 16);
-                    println!();
+                CommandExpr::UnassembleContinue(_) => {
+                    next_unassemble_address = unassemble::unassemble(mem_source.as_ref(), next_unassemble_address, 16);
                 }
                 CommandExpr::SetBreakpoint(_, expr) => {
                     if let Some(addr) = eval_expr(expr) {

@@ -2,7 +2,7 @@ use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, MasmFormatter};
 
 use crate::memory::MemorySource;
 
-pub fn unassemble(memory_source: &dyn MemorySource, va: u64, lines: usize) {
+pub fn unassemble(memory_source: &dyn MemorySource, va: u64, lines: usize) -> u64 {
 
     // We'll never need more than lines * 15
     let bytes = memory_source.read_raw_memory(va, lines * 15);
@@ -40,6 +40,7 @@ pub fn unassemble(memory_source: &dyn MemorySource, va: u64, lines: usize) {
     //      let instructions: Vec<_> = decoder.into_iter().collect();
     // but can_decode()/decode_out() is a little faster:
     let mut instruction_count = 0;
+    let mut last_rip = 0;
     while decoder.can_decode() && instruction_count < lines {
         // There's also a decode() method that returns an instruction but that also
         // means it copies an instruction (40 bytes):
@@ -64,5 +65,7 @@ pub fn unassemble(memory_source: &dyn MemorySource, va: u64, lines: usize) {
         }
         println!(" {}", output);
         instruction_count += 1;
+        last_rip = instruction.ip() + instr_bytes.len() as u64;
     }
+    last_rip
 }
