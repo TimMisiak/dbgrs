@@ -175,6 +175,7 @@ version = "0.1.0"
 dependencies = [
  "codemap",
  "codemap-diagnostic",
+ "iced-x86",
  "num-traits",
  "pdb",
  "rust-sitter",
@@ -321,6 +322,15 @@ name = "httpdate"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
+
+[[package]]
+name = "iced-x86"
+version = "1.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdd366a53278429c028367e0ba22a46cab6d565a57afb959f06e92c7a69e7828"
+dependencies = [
+ "lazy_static",
+]
 
 [[package]]
 name = "idna"
