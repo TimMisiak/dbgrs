@@ -52,20 +52,29 @@ impl Process {
 
     pub fn get_module_by_name_mut(&mut self, module_name: &str) -> Option<&mut Module> {
         let mut potential_trimmed_match = None;
+        let mut potential_trimmed_noext_match = None;
     
         for module in self.module_list.iter_mut() {
             if module.name == module_name {
                 return Some(module);
             }
     
-            if potential_trimmed_match.is_none() {
-                let trimmed = module.name.rsplitn(2, '\\').next().unwrap_or(&module.name);
-                if trimmed.to_lowercase() == module_name.to_lowercase() {
-                    potential_trimmed_match = Some(module);
+            let trimmed = module.name.rsplitn(2, '\\').next().unwrap_or(&module.name);
+            if potential_trimmed_match.is_none() && trimmed.to_lowercase() == module_name.to_lowercase() {
+                potential_trimmed_match = Some(module);
+            } else if potential_trimmed_noext_match.is_none() {
+                let parts: Vec<&str> = trimmed.rsplitn(2, '.').collect();
+                let trimmed_noext = if parts.len() == 2 {
+                    parts[1]
+                } else {
+                    parts[0]
+                };
+                if trimmed_noext.to_lowercase() == module_name.to_lowercase() {
+                    potential_trimmed_noext_match = Some(module);
                 }
             }
         };
     
-        potential_trimmed_match
+        potential_trimmed_match.or(potential_trimmed_noext_match)
     }
 }
