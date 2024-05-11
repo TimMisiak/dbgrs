@@ -10,7 +10,7 @@ pub struct EvalContext<'a> {
     pub register_context: &'a CONTEXT,
 }
 
-pub fn evaluate_expression(expr: EvalExpr, context: &mut EvalContext) -> Result<u64, String> {
+pub fn evaluate_expression(expr: EvalExpr, context: &mut EvalContext) -> Result<u64, anyhow::Error> {
     match expr {
         EvalExpr::Number(x) => Ok(x),
         EvalExpr::Add(x, _, y) => Ok(evaluate_expression(*x, context)? + evaluate_expression(*y, context)?),
