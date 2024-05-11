@@ -2,7 +2,7 @@ use crate::memory::{*, self};
 use windows::Win32::System::SystemInformation::IMAGE_FILE_MACHINE_AMD64;
 use windows::Win32::System::SystemServices::*;
 use windows::Win32::System::Diagnostics::Debug::{*, IMAGE_DATA_DIRECTORY};
-use pdb::PDB;
+use pdb::{PDB, AddressMap};
 use std::fs::File;
 
 pub struct Module {
@@ -13,6 +13,7 @@ pub struct Module {
     pub pdb_name: Option<String>,
     pub pdb_info: Option<PdbInfo>,
     pub pdb: Option<PDB<'static, File>>,
+    pub address_map: Option<AddressMap<'static>>,
     pe_header: IMAGE_NT_HEADERS64,
 }
 
@@ -72,7 +73,7 @@ impl Module {
             return Err("Unsupported machine architecture for module");
         }
         
-        let (pdb_info, pdb_name, pdb) = Module::read_debug_info(&pe_header, module_address, memory_source)?;
+        let (pdb_info, pdb_name, mut pdb) = Module::read_debug_info(&pe_header, module_address, memory_source)?;
         let (exports, export_table_module_name) = Module::read_exports(&pe_header, module_address, memory_source)?;
 
         let module_name = module_name.or(export_table_module_name);
@@ -82,6 +83,7 @@ impl Module {
                 format!("module_{:X}", module_address)
             }
         };
+        let address_map = pdb.as_mut().and_then(|pdb| pdb.address_map().ok());
 
         Ok(Module{
             name: module_name,
@@ -91,6 +93,7 @@ impl Module {
             pdb_info,
             pdb_name,
             pdb,
+            address_map,
             pe_header
         })
     }

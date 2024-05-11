@@ -1,6 +1,8 @@
 use pdb::FallibleIterator;
+use pdb::SymbolData;
 
 use crate::{process::Process, module::{Export, ExportTarget, Module}};
+use anyhow::anyhow;
 
 enum AddressMatch<'a> {
     None,
@@ -16,11 +18,11 @@ impl AddressMatch<'_> {
     }
 }
 
-pub fn resolve_name_to_address(sym: &str, process: &mut Process) -> Result<u64, String> {
+pub fn resolve_name_to_address(sym: &str, process: &mut Process) -> Result<u64, anyhow::Error> {
     match sym.chars().position(|c| c == '!') {
         None => {
             // Search all modules
-            Err("Not yet implemented".to_string())
+            Err(anyhow!("Not yet implemented"))
         },
         Some(pos) => {
             let module_name = &sym[..pos];
@@ -29,16 +31,26 @@ pub fn resolve_name_to_address(sym: &str, process: &mut Process) -> Result<u64, 
                 if let Some(addr) = resolve_function_in_module(module, func_name) {
                     Ok(addr)
                 } else {
-                    Err(format!("Could not find {} in module {}", func_name, module_name))
+                    Err(anyhow!("Could not find {} in module {}", func_name, module_name))
                 }
             } else {
-                Err(format!("Could not find module {}", module_name))
+                Err(anyhow!("Could not find module {}", module_name))
             }
         },
     }
 }
 
 pub fn resolve_function_in_module(module: &mut Module, func: &str) -> Option<u64> {
+    // We'll search exports first and private symbols next
+    let export_resolution = resolve_export_in_module(module, func);
+    if export_resolution.is_some() {
+        return export_resolution;
+    }
+
+    resolve_symbol_name_in_module(module, func).unwrap_or(None)
+}
+
+fn resolve_export_in_module(module: &mut Module, func: &str) -> Option<u64> {
     // We'll search exports first and private symbols next
     for export in module.exports.iter() {
         if let Some(export_name) = &export.name {
@@ -52,6 +64,30 @@ pub fn resolve_function_in_module(module: &mut Module, func: &str) -> Option<u64
     }
     None
 }
+
+fn resolve_symbol_name_in_module(module: &mut Module, func: &str) -> Result<Option<u64>, anyhow::Error> {
+    let pdb = module.pdb.as_mut().ok_or(anyhow!("No PDB loaded"))?;
+    let dbi = pdb.debug_information()?;
+    let mut modules = dbi.modules()?;
+    let address_map = module.address_map.as_mut().ok_or(anyhow!("No address map available"))?;
+    while let Some(pdb_module) = modules.next()? {
+        let mi = pdb.module_info(&pdb_module)?.ok_or(anyhow!("Couldn't get module info"))?;
+        let mut symbols = mi.symbols()?;
+        while let Some(sym) = symbols.next()? {
+            if let Ok(parsed) = sym.parse() {
+                if let SymbolData::Procedure(proc_data) = parsed {
+                    if proc_data.name.to_string() == func {
+                        let rva = proc_data.offset.to_rva(address_map).ok_or(anyhow!("Couldn't convert procedure offset to RVA"))?;
+                        let address = module.address + rva.0 as u64;
+                        return Ok(Some(address));
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 
 pub fn resolve_address_to_name(address: u64, process: &mut Process) -> Option<String> {
     let module = match process.get_containing_module_mut(address) {
