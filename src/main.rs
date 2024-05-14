@@ -6,7 +6,7 @@ use windows_sys::{
     Win32::System::{Diagnostics::Debug::*, Threading::*},
 };
 
-use std::{ptr::null, mem::MaybeUninit};
+use std::{fs::File, io::{self, BufRead}, mem::MaybeUninit, ptr::null, cmp::{max, min}};
 
 mod command;
 mod eval;
@@ -229,8 +229,27 @@ fn main_debugger_loop(process: HANDLE) {
                 }
                 CommandExpr::ListSource(_, expr) => {
                     if let Some(val) = eval_expr(expr) {
-                        let (file_name, line_number) = resolve_address_to_source_line(val, &mut process).unwrap();
-                        println!("LSA: {}:{}", file_name, line_number);
+                        match resolve_address_to_source_line(val, &mut process) {
+                            Ok((file_name, line_number)) => {
+                                println!("LSA: {}:{}", file_name, line_number);
+                                if let Ok(file) = File::open(&file_name) {
+                                    let reader = io::BufReader::new(file);
+                                    let lines: Vec<_> = reader.lines().map(|l| l.unwrap_or("".to_string())) .collect();
+                                    for print_line_num in (max(1, line_number - 2))..=(min(lines.len() as u32, line_number + 2)) {
+                                        if print_line_num == line_number {
+                                            println!(">{:4}: {}", print_line_num, lines[print_line_num as usize - 1]);
+                                        } else {
+                                            println!("{:5}: {}", print_line_num, lines[print_line_num as usize - 1]);
+                                        }
+                                    }
+                                } else {
+                                    println!("Couldn't open file: {}", file_name);
+                                }
+                            },
+                            Err(e) => {
+                                println!("Couldn't look up source: {}", e);
+                            }
+                        }                        
                     }
                 }
                 CommandExpr::SetBreakpoint(_, expr) => {
