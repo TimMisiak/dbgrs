@@ -20,11 +20,13 @@ mod event;
 mod breakpoint;
 mod util;
 mod unassemble;
+mod source;
 
 use process::Process;
 use command::grammar::{CommandExpr, EvalExpr};
 use breakpoint::BreakpointManager;
 use util::*;
+use source::resolve_address_to_source_line;
 
 const TRAP_FLAG: u32 = 1 << 8;
 
@@ -224,6 +226,12 @@ fn main_debugger_loop(process: HANDLE) {
                 }
                 CommandExpr::UnassembleContinue(_) => {
                     next_unassemble_address = unassemble::unassemble(mem_source.as_ref(), next_unassemble_address, 16);
+                }
+                CommandExpr::ListSource(_, expr) => {
+                    if let Some(val) = eval_expr(expr) {
+                        let (file_name, line_number) = resolve_address_to_source_line(val, &mut process).unwrap();
+                        println!("LSA: {}:{}", file_name, line_number);
+                    }
                 }
                 CommandExpr::SetBreakpoint(_, expr) => {
                     if let Some(addr) = eval_expr(expr) {

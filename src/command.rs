@@ -21,6 +21,7 @@ pub mod grammar {
         ListNearest(#[rust_sitter::leaf(text = "ln")] (), Box<EvalExpr>),
         Unassemble(#[rust_sitter::leaf(text = "u")] (), Box<EvalExpr>),
         UnassembleContinue(#[rust_sitter::leaf(text = "u")] ()),
+        ListSource(#[rust_sitter::leaf(text = "lsa")] (), Box<EvalExpr>),
         Quit(#[rust_sitter::leaf(text = "q")] ()),
     }
 
