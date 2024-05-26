@@ -22,6 +22,7 @@ pub mod grammar {
         Unassemble(#[rust_sitter::leaf(text = "u")] (), Box<EvalExpr>),
         UnassembleContinue(#[rust_sitter::leaf(text = "u")] ()),
         ListSource(#[rust_sitter::leaf(text = "lsa")] (), Box<EvalExpr>),
+        SrcPath(#[rust_sitter::leaf(text = ".srcpath")] (), #[rust_sitter::leaf(pattern = "(.*)", transform = parse_path)] String),
         Quit(#[rust_sitter::leaf(text = "q")] ()),
     }
 
@@ -55,6 +56,10 @@ pub mod grammar {
 
     fn parse_sym(text: &str) -> String {
         text.to_owned()
+    }
+
+    fn parse_path(text: &str) -> String {
+        text.trim().to_owned()
     }
 }
 

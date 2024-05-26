@@ -88,6 +88,8 @@ fn main_debugger_loop(process: HANDLE) {
     let mut process = Process::new();
     let mut breakpoints = BreakpointManager::new();
 
+    let mut source_search_paths = Vec::new();
+
     loop {
         let (event_context, debug_event) = event::wait_for_next_debug_event(mem_source.as_ref());
 
@@ -232,18 +234,21 @@ fn main_debugger_loop(process: HANDLE) {
                         match resolve_address_to_source_line(val, &mut process) {
                             Ok((file_name, line_number)) => {
                                 println!("LSA: {}:{}", file_name, line_number);
-                                if let Ok(file) = File::open(&file_name) {
-                                    let reader = io::BufReader::new(file);
-                                    let lines: Vec<_> = reader.lines().map(|l| l.unwrap_or("".to_string())) .collect();
-                                    for print_line_num in (max(1, line_number - 2))..=(min(lines.len() as u32, line_number + 2)) {
-                                        if print_line_num == line_number {
-                                            println!(">{:4}: {}", print_line_num, lines[print_line_num as usize - 1]);
-                                        } else {
-                                            println!("{:5}: {}", print_line_num, lines[print_line_num as usize - 1]);
+                                if let Ok(file_name) = source::find_source_file_match(&file_name, &source_search_paths) {
+                                    if let Ok(file) = File::open(&file_name) {
+                                        println!("Found matching file: {}", file_name.display());
+                                        let reader = io::BufReader::new(file);
+                                        let lines: Vec<_> = reader.lines().map(|l| l.unwrap_or("".to_string())) .collect();
+                                        for print_line_num in (max(1, line_number - 2))..=(min(lines.len() as u32, line_number + 2)) {
+                                            if print_line_num == line_number {
+                                                println!(">{:4}: {}", print_line_num, lines[print_line_num as usize - 1]);
+                                            } else {
+                                                println!("{:5}: {}", print_line_num, lines[print_line_num as usize - 1]);
+                                            }
                                         }
+                                    } else {
+                                        println!("Couldn't open file: {}", file_name.display());
                                     }
-                                } else {
-                                    println!("Couldn't open file: {}", file_name);
                                 }
                             },
                             Err(e) => {
@@ -251,6 +256,10 @@ fn main_debugger_loop(process: HANDLE) {
                             }
                         }                        
                     }
+                }
+                CommandExpr::SrcPath(_, path) => {
+                    source_search_paths.clear();
+                    source_search_paths.extend(path.split(';').map(|s| s.to_string()));
                 }
                 CommandExpr::SetBreakpoint(_, expr) => {
                     if let Some(addr) = eval_expr(expr) {

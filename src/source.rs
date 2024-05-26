@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use pdb::{FallibleIterator, Rva};
 use anyhow::{Result, anyhow};
 
@@ -35,4 +37,30 @@ pub fn resolve_address_to_source_line(address: u64, process: &mut Process) -> Re
         }
     }
     Err(anyhow!("Address not found"))
+}
+
+pub fn find_source_file_match(file: &str, search_paths: &Vec<String>) -> Result<PathBuf> {
+    let file_path = Path::new(file);
+
+    // If the file path is absolute and exists, return it immediately.
+    if file_path.is_absolute() && file_path.exists() {
+        return Ok(file_path.to_path_buf());
+    }
+
+    // Get all subsets of the input path.
+    let components: Vec<&str> = file_path.components().map(|c| c.as_os_str().to_str().unwrap()).collect();
+
+    for search_path in search_paths {
+        let search_path = Path::new(search_path);
+
+        for i in 0..components.len() {
+            // Join the search path with the subset of the input path.
+            let test_path: PathBuf = search_path.join(components[i..].iter().collect::<PathBuf>());
+            if test_path.exists() {
+                return Ok(test_path.to_path_buf());
+            }
+        }
+    }
+
+    Err(anyhow!("File not found"))
 }
