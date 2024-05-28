@@ -179,6 +179,7 @@ dependencies = [
  "iced-x86",
  "num-traits",
  "pdb",
+ "regex",
  "rust-sitter",
  "rust-sitter-tool",
  "windows",

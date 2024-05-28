@@ -1,4 +1,5 @@
 use std::io::Write;
+use regex::Regex;
 
 use codemap::CodeMap;
 use codemap_diagnostic::{ColorConfig, Diagnostic, Emitter, Level, SpanLabel, SpanStyle};
@@ -30,6 +31,7 @@ pub mod grammar {
     pub enum EvalExpr {
         Number(#[rust_sitter::leaf(pattern = r"(\d+|0x[0-9a-fA-F]+)", transform = parse_int)] u64),
         Symbol(#[rust_sitter::leaf(pattern = r"(([a-zA-Z0-9_@#.]+!)?[a-zA-Z0-9_@#.]+)", transform = parse_sym)] String),
+        SourceLine(#[rust_sitter::leaf(pattern = r"(`[^`!]+!(?:[a-zA-Z]+:)[^`:!]+:\d+`)", transform = parse_source_line)] (String, String, u32)),
         #[rust_sitter::prec_left(1)]
         Add(
             Box<EvalExpr>,
@@ -60,6 +62,18 @@ pub mod grammar {
 
     fn parse_path(text: &str) -> String {
         text.trim().to_owned()
+    }
+
+    fn parse_source_line(text: &str) -> (String, String, u32) {
+        let re = regex::Regex::new(r"^`([^!]+)!((?:[a-zA-Z]+:)[^:]+):(\d+)`$").unwrap();
+        if let Some(captures) = re.captures(text) {
+            let module_name = captures.get(1).unwrap().as_str().to_string();
+            let file_name = captures.get(2).unwrap().as_str().to_string();
+            let line_number = captures.get(3).unwrap().as_str().parse::<u32>().unwrap();
+            (module_name, file_name, line_number)
+        } else {
+            panic!("Unexpected")
+        }
     }
 }
 

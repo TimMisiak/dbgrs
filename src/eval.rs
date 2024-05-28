@@ -2,6 +2,7 @@ use crate::command::grammar::EvalExpr;
 use crate::process::Process;
 use crate::name_resolution::resolve_name_to_address;
 use crate::registers::get_register;
+use crate::source::resolve_source_line_to_address;
 use windows_sys::Win32::System::Diagnostics::Debug::CONTEXT;
 
 pub struct EvalContext<'a> {
@@ -21,6 +22,9 @@ pub fn evaluate_expression(expr: EvalExpr, context: &mut EvalContext) -> Result<
                 }
             }
             resolve_name_to_address(&sym, context.process)
+        },
+        EvalExpr::SourceLine((src_module, src_file, src_line)) => {
+            resolve_source_line_to_address(&src_module, &src_file, src_line, context.process)
         }
     }
 }
